@@ -1124,6 +1124,7 @@ export const zh: Translations = {
     close: '关闭配置档案',
     nameHint: '小写字母、数字、连字符和下划线。必须以字母或数字开头。',
     title: '配置档案',
+    switcherLabel: '配置档案（智能体）',
     count: count => `${count} 个配置档案`,
     loading: '正在加载配置档案…',
     newProfile: '新建配置档案',

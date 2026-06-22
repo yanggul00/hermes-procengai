@@ -937,6 +937,7 @@ export const en: Translations = {
     close: 'Close profiles',
     nameHint: 'Lowercase letters, digits, hyphens, and underscores. Must start with a letter or digit.',
     title: 'Profiles',
+    switcherLabel: 'Profiles (Agents)',
     count: count => `${count} ${count === 1 ? 'profile' : 'profiles'}`,
     loading: 'Loading profiles...',
     newProfile: 'New profile',

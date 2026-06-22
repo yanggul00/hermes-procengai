@@ -420,14 +420,14 @@ function ProfileDropdown({ activeKey, colors, isAll, named, onDelete, onRecolor,
 
   const activeNamed = isAll ? null : named.find(profile => normalizeProfileKey(profile.name) === activeKey) ?? null
   const triggerColor = activeNamed ? resolveProfileColor(activeNamed.name, colors) : null
-  const triggerLabel = activeNamed ? activeNamed.name : p.title
+  const triggerLabel = activeNamed ? activeNamed.name : p.switcherLabel
 
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <Tip label={p.switchToProfile(triggerLabel)}>
         <PopoverTrigger asChild>
           <button
-            aria-label={p.title}
+            aria-label={p.switcherLabel}
             className={cn(
               'flex h-6 min-w-0 max-w-40 flex-1 items-center gap-1.5 rounded-md px-1.5 text-xs text-(--ui-text-tertiary) transition hover:bg-(--ui-control-hover-background) hover:text-foreground',
               activeNamed && 'text-foreground'

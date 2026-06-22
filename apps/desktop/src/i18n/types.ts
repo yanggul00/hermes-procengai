@@ -709,6 +709,7 @@ export interface Translations {
     close: string
     nameHint: string
     title: string
+    switcherLabel: string
     count: (count: number) => string
     loading: string
     newProfile: string
