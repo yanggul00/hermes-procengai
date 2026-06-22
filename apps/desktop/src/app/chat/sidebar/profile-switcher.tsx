@@ -66,12 +66,12 @@ const DRAG_TRANSITION = `transform 200ms ${SPRING}`
 // x drift). Replaces the horizontal stepThroughCells modifier the rail used.
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 })
 
-// Arc-Spaces-style profile rail at the sidebar foot: a default↔all toggle pinned
-// left, the colored named profiles scrolling between, and Manage pinned right.
-// The active profile pops in its own color — the "where am I" cue. Single-
-// profile users see the "+" (create their first profile) and the Manage
-// overflow (edit the default profile's SOUL.md); the colored named squares
-// and the default↔all toggle only appear once a second profile exists.
+// Profile rail at the sidebar foot: a default↔all toggle pinned left, a
+// dropdown of the named profiles between, and Manage pinned right. The active
+// profile shows in its own color on the dropdown trigger — the "where am I"
+// cue. Single-profile users see the "+" (create their first profile) and the
+// Manage overflow (edit the default profile's SOUL.md); the named-profile
+// dropdown and the default↔all toggle only appear once a second profile exists.
 export function ProfileRail() {
   const { t } = useI18n()
   const p = t.profiles
@@ -169,6 +169,10 @@ export function ProfileRail() {
         </button>
       </Tip>
 
+      {/* Always reachable, even with only the default profile: the manage
+          overlay is the only place to edit a profile's SOUL.md, so a
+          single-profile user must be able to edit the default's persona
+          without first creating a throwaway second profile. */}
       <ProfilePill active={false} glyph="ellipsis" label={p.manageProfiles} onSelect={() => navigate(PROFILES_ROUTE)} />
 
       {/* Land in the new profile on a fresh chat (selectProfile triggers the
