@@ -15,7 +15,8 @@ import {
   horizontalListSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
-  useSortable
+  useSortable,
+  verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@nanostores/react'
@@ -49,6 +50,7 @@ import {
 } from '@/store/profile'
 import type { ProfileInfo } from '@/types/hermes'
 
+import { reorderProfileNames } from './profile-reorder'
 import { CreateProfileDialog } from '../../profiles/create-profile-dialog'
 import { DeleteProfileDialog } from '../../profiles/delete-profile-dialog'
 import { RenameProfileDialog } from '../../profiles/rename-profile-dialog'
@@ -62,6 +64,10 @@ const RAIL_GAP = 4 // px — matches gap-1 between squares.
 const SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
 const RAIL_TRANSITION = { duration: 300, easing: SPRING }
 const DRAG_TRANSITION = `transform 200ms ${SPRING}`
+
+// The dropdown list is a vertical strip, so pin drags to the y-axis (kill any
+// x drift). Replaces the horizontal stepThroughCells modifier the rail used.
+const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 })
 
 // The rail is a single horizontal strip of fixed cells. Pin drags to the x-axis
 // (no cross-axis scrollbar), snap to whole cells so a square steps slot-to-slot
@@ -520,5 +526,251 @@ function ProfileSquare({ active, color, label, onDelete, onRecolor, onRename, on
         </button>
       </PopoverContent>
     </Popover>
+  )
+}
+
+interface ProfileRowProps {
+  active: boolean
+  color: null | string
+  label: string
+  onSelect: () => void
+  onRecolor: (color: null | string) => void
+  onRename: () => void
+  onDelete: () => void
+}
+
+// A profile as a full-width row inside the dropdown: a color dot + the full
+// name + a check on the active one. Drag-sort to reorder (a tap under the drag
+// threshold still selects), long-press or right-click to recolor/rename/delete
+// — the same gesture set the old letter-square carried, just laid out as a row.
+function ProfileRow({ active, color, label, onDelete, onRecolor, onRename, onSelect }: ProfileRowProps) {
+  const { t } = useI18n()
+  const p = t.profiles
+  const hue = color ?? 'var(--ui-text-quaternary)'
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pressTimer = useRef<null | number>(null)
+  const suppressClick = useRef(false)
+
+  const { attributes, isDragging, listeners, setNodeRef, transform, transition } = useSortable({
+    id: label,
+    transition: RAIL_TRANSITION
+  })
+
+  const clearPress = () => {
+    if (pressTimer.current != null) {
+      clearTimeout(pressTimer.current)
+      pressTimer.current = null
+    }
+  }
+
+  useEffect(() => {
+    if (isDragging) {
+      clearPress()
+    }
+  }, [isDragging])
+  useEffect(() => clearPress, [])
+
+  const base = CSS.Transform.toString(transform)
+  const lift = isDragging ? '0 6px 16px -4px rgb(0 0 0 / 0.4)' : undefined
+
+  const pickColor = (next: null | string) => {
+    onRecolor(next)
+    setPickerOpen(false)
+    triggerHaptic('selection')
+  }
+
+  return (
+    <Popover onOpenChange={setPickerOpen} open={pickerOpen}>
+      <ContextMenu>
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <PopoverAnchor asChild>
+              <ContextMenuTrigger asChild>
+                <TooltipTrigger asChild>
+                  <button
+                    className={cn(
+                      'flex w-full cursor-grab touch-none select-none items-center gap-2 rounded-md px-2 py-1.5 text-xs leading-none transition-colors hover:bg-(--ui-control-hover-background)',
+                      active && 'bg-(--ui-control-active-background)',
+                      isDragging && 'z-10 cursor-grabbing'
+                    )}
+                    ref={setNodeRef}
+                    style={{
+                      boxShadow: lift,
+                      transform: base,
+                      transition: isDragging ? DRAG_TRANSITION : transition
+                    }}
+                    type="button"
+                    {...attributes}
+                    {...listeners}
+                    aria-label={label}
+                    aria-pressed={active}
+                    onClick={() => {
+                      if (suppressClick.current) {
+                        suppressClick.current = false
+
+                        return
+                      }
+
+                      onSelect()
+                    }}
+                    onPointerCancel={clearPress}
+                    onPointerDown={event => {
+                      listeners?.onPointerDown?.(event)
+
+                      if (event.button !== 0) {
+                        return
+                      }
+
+                      suppressClick.current = false
+                      clearPress()
+                      pressTimer.current = window.setTimeout(() => {
+                        suppressClick.current = true
+                        triggerHaptic('success')
+                        setPickerOpen(true)
+                      }, LONG_PRESS_MS)
+                    }}
+                    onPointerLeave={clearPress}
+                    onPointerUp={clearPress}
+                  >
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: profileColorSoft(hue, active ? 70 : 45), boxShadow: `inset 0 0 0 1px ${hue}` }}
+                    />
+                    <span className="flex-1 truncate text-left" style={{ color: active ? undefined : 'var(--ui-text-secondary)' }}>
+                      {label}
+                    </span>
+                    {active && <Codicon name="check" size="0.75rem" />}
+                  </button>
+                </TooltipTrigger>
+              </ContextMenuTrigger>
+            </PopoverAnchor>
+            <TooltipContent side="right">{label}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <ContextMenuContent
+          aria-label={p.actionsFor(label)}
+          className="w-40"
+          collisionPadding={{ bottom: 44, left: 8, right: 8, top: 8 }}
+          onCloseAutoFocus={event => event.preventDefault()}
+        >
+          <ContextMenuItem onSelect={() => setPickerOpen(true)}>
+            <Codicon name="symbol-color" size="0.875rem" />
+            <span>{p.color}</span>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={onRename}>
+            <Codicon name="edit" size="0.875rem" />
+            <span>{p.rename}</span>
+          </ContextMenuItem>
+          <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete} variant="destructive">
+            <Codicon name="trash" size="0.875rem" />
+            <span>{t.common.delete}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+
+      <PopoverContent aria-label={p.colorFor(label)} className="w-auto p-2" collisionPadding={{ bottom: 44, left: 8, right: 8, top: 8 }} side="right">
+        <div className="grid grid-cols-6 gap-1.5">
+          {PROFILE_SWATCHES.map(swatch => (
+            <button
+              aria-label={p.setColor(swatch)}
+              className="size-5 rounded-full transition-transform hover:scale-110"
+              key={swatch}
+              onClick={() => pickColor(swatch)}
+              style={{
+                backgroundColor: swatch,
+                boxShadow: swatch === color ? '0 0 0 2px var(--ui-bg-elevated), 0 0 0 3.5px currentColor' : undefined,
+                color: swatch
+              }}
+              type="button"
+            />
+          ))}
+        </div>
+        <button
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md py-1 text-xs text-(--ui-text-tertiary) transition hover:bg-(--ui-control-hover-background) hover:text-foreground"
+          onClick={() => pickColor(null)}
+          type="button"
+        >
+          <Codicon name="sync" size="0.75rem" />
+          {p.autoColor}
+        </button>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+interface ProfileListProps {
+  named: ProfileInfo[]
+  activeKey: string
+  isAll: boolean
+  colors: Record<string, string>
+  onReorder: (names: string[]) => void
+  onSelect: (name: string) => void
+  onRecolor: (name: string, color: null | string) => void
+  onRename: (profile: ProfileInfo) => void
+  onDelete: (profile: ProfileInfo) => void
+}
+
+// The vertical sortable list rendered inside the dropdown panel. Drag a row to
+// reorder (committed via reorderProfileNames → onReorder), tap to select.
+export function ProfileList({ activeKey, colors, isAll, named, onDelete, onRecolor, onRename, onReorder, onSelect }: ProfileListProps) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const lastOverRef = useRef<string | null>(null)
+
+  const handleDragStart = ({ active }: DragStartEvent) => {
+    lastOverRef.current = String(active.id)
+  }
+
+  const handleDragOver = ({ over }: DragOverEvent) => {
+    const id = over ? String(over.id) : null
+
+    if (id && id !== lastOverRef.current) {
+      lastOverRef.current = id
+      triggerHaptic('selection')
+    }
+  }
+
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    lastOverRef.current = null
+
+    if (!over || active.id === over.id) {
+      return
+    }
+
+    const next = reorderProfileNames(named.map(profile => profile.name), String(active.id), String(over.id))
+    onReorder(next)
+    triggerHaptic('success')
+  }
+
+  return (
+    <DndContext
+      collisionDetection={closestCenter}
+      modifiers={[restrictToVerticalAxis]}
+      onDragEnd={handleDragEnd}
+      onDragOver={handleDragOver}
+      onDragStart={handleDragStart}
+      sensors={sensors}
+    >
+      <SortableContext items={named.map(profile => profile.name)} strategy={verticalListSortingStrategy}>
+        <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto [scrollbar-width:thin]">
+          {named.map(profile => (
+            <ProfileRow
+              active={!isAll && normalizeProfileKey(profile.name) === activeKey}
+              color={resolveProfileColor(profile.name, colors)}
+              key={profile.name}
+              label={profile.name}
+              onDelete={() => onDelete(profile)}
+              onRecolor={color => onRecolor(profile.name, color)}
+              onRename={() => onRename(profile)}
+              onSelect={() => onSelect(profile.name)}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
   )
 }
