@@ -1035,17 +1035,47 @@ def _auth_store_lock(timeout_seconds: float = AUTH_LOCK_TIMEOUT_SECONDS):
         yield
 
 
+# auth.json is shared across every Hermes process under one HERMES_HOME (the
+# desktop runs the primary backend plus one per named profile). On Windows a
+# read that races another process's write fails with PermissionError — a
+# transient sharing violation, NOT corruption. Retry briefly so the read rides
+# out the writer's lock window instead of giving up on the first collision.
+_AUTH_READ_RETRIES = 4
+_AUTH_READ_RETRY_DELAY = 0.1  # seconds between attempts
+
+
+def _read_auth_text(auth_file: Path) -> str:
+    """Read ``auth.json``, retrying transient OS errors (e.g. a Windows sharing
+    violation while another Hermes process is mid-write). Re-raises the last
+    ``OSError`` if every attempt fails — a locked/unreadable file is never
+    silently swallowed, so the caller cannot mistake it for corruption."""
+    last_exc: Optional[OSError] = None
+    for attempt in range(_AUTH_READ_RETRIES):
+        try:
+            return auth_file.read_text()
+        except OSError as exc:
+            last_exc = exc
+            if attempt < _AUTH_READ_RETRIES - 1:
+                time.sleep(_AUTH_READ_RETRY_DELAY)
+    assert last_exc is not None  # loop exits only via return or a caught OSError
+    raise last_exc
+
+
 def _load_auth_store(auth_file: Optional[Path] = None) -> Dict[str, Any]:
     auth_file = auth_file or _auth_file_path()
     if not auth_file.exists():
         return {"version": AUTH_STORE_VERSION, "providers": {}}
 
+    # Only genuinely bad *content* (malformed JSON / undecodable bytes) is
+    # corruption — preserve it and reset. A locked/unreadable file raises
+    # OSError, which must propagate: treating it as corruption would copy the
+    # valid store to .corrupt and return an empty store that a later save then
+    # writes back over the user's real credentials (#auth-json-concurrent-read).
     try:
-        raw = json.loads(auth_file.read_text())
-    except Exception as exc:
+        raw = json.loads(_read_auth_text(auth_file))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         corrupt_path = auth_file.with_suffix(".json.corrupt")
         try:
-            import shutil
             shutil.copy2(auth_file, corrupt_path)
         except Exception:
             pass
