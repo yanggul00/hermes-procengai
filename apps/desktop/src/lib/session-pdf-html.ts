@@ -13,6 +13,9 @@ export interface SessionPdfOpts {
   // When false/omitted (sidebar Save of a closed session), all thinking blocks
   // render as a marker.
   honorThinkingExpansion?: boolean
+  // Print path: render each link's URL as visible text (the OS print dialog
+  // flattens clickable annotations). Save omits it (links stay clickable).
+  inlineLinkUrls?: boolean
 }
 
 // Fetch a session, normalize it the same way the chat does (toChatMessages),
@@ -25,7 +28,13 @@ export async function buildSessionPdfHtml(sessionId: string, opts: SessionPdfOpt
   const chat = toChatMessages(messages)
   const imageMap = await resolveImageMap(collectImageRefs(chat))
   const expandedThinking = opts.honorThinkingExpansion ? collectExpandedThinkingKeys() : null
-  const html = renderSessionPdfHtml({ messages: chat, title: opts.title, imageMap, expandedThinking })
+  const html = renderSessionPdfHtml({
+    messages: chat,
+    title: opts.title,
+    imageMap,
+    expandedThinking,
+    showLinkUrls: opts.inlineLinkUrls
+  })
   const katexCss = await window.hermesDesktop.katexCss()
 
   return html.replace('<!--KATEX_CSS-->', `<style>${katexCss}</style>`)

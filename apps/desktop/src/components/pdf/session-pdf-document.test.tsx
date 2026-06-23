@@ -44,17 +44,34 @@ describe('renderSessionPdfHtml', () => {
     expect(html).toContain('thinking-marker') // just the marker
   })
 
+  const linkMessages = [
+    { id: '1', role: 'assistant', parts: [{ type: 'text', text: 'See [1](https://ref.example.org/1).' }] }
+  ] as never
+
   it('renders web links as real anchors with the href preserved', () => {
-    const html = renderSessionPdfHtml({
-      messages: [
-        { id: '1', role: 'assistant', parts: [{ type: 'text', text: 'See [1](https://ref.example.org/1).' }] }
-      ] as never,
-      title: 't',
-      imageMap: new Map(),
-      expandedThinking: null
-    })
+    const html = renderSessionPdfHtml({ messages: linkMessages, title: 't', imageMap: new Map(), expandedThinking: null })
     expect(html).toContain('href="https://ref.example.org/1"')
     expect(html).not.toContain('data-streamdown="link"') // not the hrefless button
+  })
+
+  it('Save (showLinkUrls off): clickable link, no visible URL text', () => {
+    const html = renderSessionPdfHtml({ messages: linkMessages, title: 't', imageMap: new Map(), expandedThinking: null })
+    expect(html).toContain('href="https://ref.example.org/1"')
+    expect(html).not.toContain('class="link-url"') // no rendered URL span (the CSS rule is always present)
+    expect(html).not.toContain('(https://ref.example.org/1)') // no visible URL text
+  })
+
+  it('Print (showLinkUrls on): clickable link AND visible URL text', () => {
+    const html = renderSessionPdfHtml({
+      messages: linkMessages,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null,
+      showLinkUrls: true
+    })
+    expect(html).toContain('href="https://ref.example.org/1"')
+    expect(html).toContain('class="link-url"') // URL shown as visible text
+    expect(html).toContain('(https://ref.example.org/1)')
   })
 
   it('renders a placeholder for an unresolved image', () => {

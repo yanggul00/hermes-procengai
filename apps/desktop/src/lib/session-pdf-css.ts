@@ -26,6 +26,7 @@ export function sessionPdfCss(): string {
     pre { background:#f6f8fa; border:1px solid #ddd; border-radius:6px; padding:10px; overflow-x:auto; font-size:10pt; break-inside:avoid; }
     code { font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace; }
     a { color:#0645ad; text-decoration:underline; overflow-wrap:anywhere; }
+    .link-url { color:#666; font-size:0.85em; overflow-wrap:anywhere; }
     /* Streamdown renders each code line as a <span class="block ..."> and relies
        on Tailwind for layout. The PDF has no Tailwind, so force each line span to
        its own line and preserve/wrap intra-line whitespace. */

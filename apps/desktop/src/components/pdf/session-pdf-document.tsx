@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react'
+import { createContext, useContext, type ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Streamdown } from 'streamdown'
 
@@ -31,11 +31,30 @@ export function collectExpandedThinkingKeys(): Set<string> {
   return keys
 }
 
+// On in the Print path only: also render the URL as visible text next to a link.
+// The OS print dialog (Windows "Microsoft Print to PDF" etc.) flattens clickable
+// link annotations, so the visible URL keeps the link "associated" on the page.
+// Save leaves this off — its printToPDF output keeps links genuinely clickable.
+const ShowLinkUrlsContext = createContext(false)
+
 // Streamdown renders links as a <button> with the URL only in client JS state,
 // so static output loses the href entirely. Override `a` to emit a real anchor
 // (keeps the link — incl. numeric "citation" links — clickable in the PDF).
 function PdfLink({ href, children }: ComponentProps<'a'>) {
-  return href ? <a href={href}>{children}</a> : <>{children}</>
+  const showUrl = useContext(ShowLinkUrlsContext)
+
+  if (!href) {
+    return <>{children}</>
+  }
+
+  const label = typeof children === 'string' ? children : ''
+
+  return (
+    <>
+      <a href={href}>{children}</a>
+      {showUrl && label !== href ? <span className="link-url"> ({href})</span> : null}
+    </>
+  )
 }
 
 const PDF_COMPONENTS = { a: PdfLink } as ComponentProps<typeof Streamdown>['components']
@@ -160,17 +179,22 @@ export function renderSessionPdfHtml(args: {
   // null → all thinking blocks render as a marker (closed session). A Set of
   // thinkingKey()s → those blocks render their full text (expanded in chat).
   expandedThinking: Set<string> | null
+  // Print path: also show each link's URL as visible text (the OS print dialog
+  // flattens clickable annotations). Save leaves this off (links stay clickable).
+  showLinkUrls?: boolean
 }): string {
-  const { messages, title, imageMap, expandedThinking } = args
+  const { messages, title, imageMap, expandedThinking, showLinkUrls = false } = args
 
   const body = renderToStaticMarkup(
-    <div>
-      <h1 className="pdf-title">{title || 'Untitled session'}</h1>
-      <p className="pdf-sub">Hermes session export</p>
-      {messages.map(message => (
-        <MessageView expandedThinking={expandedThinking} imageMap={imageMap} key={message.id} message={message} />
-      ))}
-    </div>
+    <ShowLinkUrlsContext.Provider value={showLinkUrls}>
+      <div>
+        <h1 className="pdf-title">{title || 'Untitled session'}</h1>
+        <p className="pdf-sub">Hermes session export</p>
+        {messages.map(message => (
+          <MessageView expandedThinking={expandedThinking} imageMap={imageMap} key={message.id} message={message} />
+        ))}
+      </div>
+    </ShowLinkUrlsContext.Provider>
   )
 
   return `<!doctype html><html><head><meta charset="utf-8"><!--KATEX_CSS--><style>${sessionPdfCss()}</style></head><body>${body}</body></html>`
