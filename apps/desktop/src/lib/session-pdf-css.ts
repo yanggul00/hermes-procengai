@@ -25,6 +25,11 @@ export function sessionPdfCss(): string {
     th, td { border:1px solid #999; padding:4px 8px; text-align:left; }
     pre { background:#f6f8fa; border:1px solid #ddd; border-radius:6px; padding:10px; overflow-x:auto; font-size:10pt; break-inside:avoid; }
     code { font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace; }
+    /* Streamdown renders each code line as a <span class="block ..."> and relies
+       on Tailwind for layout. The PDF has no Tailwind, so force each line span to
+       its own line and preserve/wrap intra-line whitespace. */
+    pre, pre code { white-space:pre-wrap; overflow-wrap:anywhere; }
+    pre code > span { display:block; }
     img { max-width:100%; height:auto; break-inside:avoid; margin:6px 0; }
     .img-missing { color:#a00; font-style:italic; font-size:10pt; margin:6px 0; }
   `
