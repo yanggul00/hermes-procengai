@@ -34,7 +34,7 @@ describe('renderSessionPdfHtml', () => {
     expect(html).toContain('<!--KATEX_CSS-->') // marker for main-process css injection
     expect(html).toContain('data:image/png;base64,GEN') // generated image embedded
     expect(html).toContain('data:image/png;base64,UP') // uploaded image embedded
-    expect(html).toContain('Terminal') // one-line marker for non-image tool call (capitalized)
+    expect(html).toContain('Ran command') // tool marker uses the chat's friendly headline (buildToolView)
   })
 
   it('renders a placeholder for an unresolved image', () => {

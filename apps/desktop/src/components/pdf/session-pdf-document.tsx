@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Streamdown } from 'streamdown'
 
+import { buildToolView, type ToolPart } from '@/components/assistant-ui/tool-fallback-model'
 import type { ChatMessage, ChatMessagePart } from '@/lib/chat-messages'
 import { generatedImageFromResult } from '@/lib/generated-images'
 import { createMemoizedMathPlugin } from '@/lib/katex-memo'
@@ -10,10 +11,6 @@ import { sessionPdfCss } from '@/lib/session-pdf-css'
 const math = createMemoizedMathPlugin({ singleDollarTextMath: true })
 
 const ROLE_LABEL: Record<string, string> = { assistant: 'Assistant', system: 'System', tool: 'Tool', user: 'You' }
-
-function capitalize(value: string): string {
-  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value
-}
 
 // Markdown body (static): tables + KaTeX math; code as plain monospace.
 function Md({ children }: { children: string }) {
@@ -82,7 +79,10 @@ function PartView({ part, imageMap }: { part: ChatMessagePart; imageMap: Map<str
       const ref = generatedImageFromResult(part.result)
       return ref ? <ImageOrPlaceholder imageMap={imageMap} refKey={ref} /> : null
     }
-    return <div className="tool-marker">🔧 {capitalize(part.toolName)}</div>
+    // Mirror the chat's human-friendly tool headline ("Ran foo.py",
+    // "Analyzed image") via the same buildToolView used by the live chat.
+    const view = buildToolView(part as unknown as ToolPart, '')
+    return <div className="tool-marker">🔧 {view.title}</div>
   }
 
   return null
