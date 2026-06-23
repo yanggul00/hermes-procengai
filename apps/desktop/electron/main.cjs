@@ -44,6 +44,8 @@ const { buildDesktopBackendEnv, normalizeHermesHomeRoot } = require('./backend-e
 const { readWindowsUserEnvVar } = require('./windows-user-env.cjs')
 const { readDirForIpc } = require('./fs-read-dir.cjs')
 const { readLiveUpdateMarker } = require('./update-marker.cjs')
+const { createSavePdf } = require('./save-pdf.cjs')
+const { katexCssInlined } = require('./katex-css.cjs')
 const {
   resolveUnpackedRelease,
   decideRelaunchOutcome,
@@ -3895,6 +3897,15 @@ function installContextMenu(window) {
       }
     }
 
+    // Whole-chat Print / Save (PDF). Shown everywhere — the renderer no-ops with
+    // a notice if there is no active session. (Selection-scoped variants are out
+    // of scope for v1.)
+    if (template.length) template.push({ type: 'separator' })
+    template.push(
+      { label: 'Print', click: () => window.webContents.send('hermes:context-action', { action: 'print' }) },
+      { label: 'Save', click: () => window.webContents.send('hermes:context-action', { action: 'save' }) }
+    )
+
     if (!template.length) {
       template.push({ role: 'selectAll' })
     }
@@ -5969,6 +5980,13 @@ ipcMain.handle('hermes:saveClipboardImage', async () => {
 
   return writeComposerImage(image.toPNG(), '.png')
 })
+
+// Render a complete (renderer-built) HTML string to a PDF and save it. KaTeX
+// CSS (with embedded fonts) is served separately so the renderer can also use
+// it for the in-app print iframe.
+const savePdfHandler = createSavePdf({ BrowserWindow, dialog, fs, getMainWindow: () => mainWindow })
+ipcMain.handle('hermes:savePdf', async (_event, payload) => savePdfHandler(payload || {}))
+ipcMain.handle('hermes:katexCss', async () => katexCssInlined())
 
 ipcMain.handle('hermes:normalizePreviewTarget', (_event, target, baseDir) =>
   normalizePreviewTarget(String(target || ''), baseDir ? String(baseDir) : '')

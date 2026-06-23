@@ -29,6 +29,13 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   saveImageFromUrl: url => ipcRenderer.invoke('hermes:saveImageFromUrl', url),
   saveImageBuffer: (data, ext) => ipcRenderer.invoke('hermes:saveImageBuffer', { data, ext }),
   saveClipboardImage: () => ipcRenderer.invoke('hermes:saveClipboardImage'),
+  savePdf: payload => ipcRenderer.invoke('hermes:savePdf', payload),
+  katexCss: () => ipcRenderer.invoke('hermes:katexCss'),
+  onContextAction: callback => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('hermes:context-action', listener)
+    return () => ipcRenderer.removeListener('hermes:context-action', listener)
+  },
   getPathForFile: file => {
     try {
       return webUtils.getPathForFile(file) || ''

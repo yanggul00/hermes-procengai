@@ -51,6 +51,11 @@ declare global {
       saveImageFromUrl: (url: string) => Promise<boolean>
       saveImageBuffer: (data: ArrayBuffer | Uint8Array, ext: string) => Promise<string>
       saveClipboardImage: () => Promise<string>
+      savePdf: (payload: { html: string; defaultName: string }) => Promise<{ saved: boolean }>
+      katexCss: () => Promise<string>
+      // Optional, matching the other onX event bridges; the renderer hook guards
+      // with `window.hermesDesktop?.onContextAction`.
+      onContextAction?: (callback: (payload: { action: 'print' | 'save' }) => void) => () => void
       getPathForFile: (file: File) => string
       normalizePreviewTarget: (target: string, baseDir?: string) => Promise<HermesPreviewTarget | null>
       watchPreviewFile: (url: string) => Promise<HermesPreviewWatch>
