@@ -23,7 +23,8 @@ export function useContextActions(): void {
       }
 
       const active = sessions.find(session => session.id === storedId)
-      const opts = { profile: active?.profile, title: active?.title }
+      // Active chat window → honor live thinking expand/collapse state.
+      const opts = { honorThinkingExpansion: true, profile: active?.profile, title: active?.title }
 
       if (action === 'save') {
         void saveSessionPdf(storedId, opts)

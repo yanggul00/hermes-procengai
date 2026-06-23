@@ -1,4 +1,4 @@
-import { renderSessionPdfHtml } from '@/components/pdf/session-pdf-document'
+import { collectExpandedThinkingKeys, renderSessionPdfHtml } from '@/components/pdf/session-pdf-document'
 import { getSessionMessages } from '@/hermes'
 import type { SessionInfo } from '@/hermes'
 import { toChatMessages } from '@/lib/chat-messages'
@@ -8,6 +8,11 @@ export interface SessionPdfOpts {
   profile?: string | null
   title?: string | null
   session?: SessionInfo
+  // When true (active-window Print/Save), include a thinking block's text only
+  // if it is expanded in the live chat DOM; collapsed blocks render a marker.
+  // When false/omitted (sidebar Save of a closed session), all thinking blocks
+  // render as a marker.
+  honorThinkingExpansion?: boolean
 }
 
 // Fetch a session, normalize it the same way the chat does (toChatMessages),
@@ -19,7 +24,8 @@ export async function buildSessionPdfHtml(sessionId: string, opts: SessionPdfOpt
   const { messages } = await getSessionMessages(sessionId, profile)
   const chat = toChatMessages(messages)
   const imageMap = await resolveImageMap(collectImageRefs(chat))
-  const html = renderSessionPdfHtml({ messages: chat, title: opts.title, imageMap })
+  const expandedThinking = opts.honorThinkingExpansion ? collectExpandedThinkingKeys() : null
+  const html = renderSessionPdfHtml({ messages: chat, title: opts.title, imageMap, expandedThinking })
   const katexCss = await window.hermesDesktop.katexCss()
 
   return html.replace('<!--KATEX_CSS-->', `<style>${katexCss}</style>`)

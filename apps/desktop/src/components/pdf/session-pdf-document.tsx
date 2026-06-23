@@ -12,6 +12,24 @@ const math = createMemoizedMathPlugin({ singleDollarTextMath: true })
 
 const ROLE_LABEL: Record<string, string> = { assistant: 'Assistant', system: 'System', tool: 'Tool', user: 'You' }
 
+// Content key for matching a reasoning part against the live chat DOM: lowercase
+// alphanumerics only (so raw markdown vs. rendered textContent still match), capped.
+export function thinkingKey(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 80)
+}
+
+// Collect the keys of thinking blocks currently EXPANDED in the live chat. Open
+// disclosures render `[data-slot="aui_reasoning-text"]`; collapsed ones render
+// nothing — so presence in the DOM == expanded. Reflects the active session only.
+export function collectExpandedThinkingKeys(): Set<string> {
+  const keys = new Set<string>()
+  for (const el of document.querySelectorAll('[data-slot="aui_reasoning-text"]')) {
+    const key = thinkingKey(el.textContent ?? '')
+    if (key) keys.add(key)
+  }
+  return keys
+}
+
 // Markdown body (static): tables + KaTeX math; code as plain monospace.
 function Md({ children }: { children: string }) {
   return (
@@ -53,15 +71,33 @@ function ImageOrPlaceholder({ refKey, imageMap }: { refKey: string; imageMap: Ma
   return src ? <img alt="" src={src} /> : <div className="img-missing">[image unavailable: {mediaName(refKey)}]</div>
 }
 
-function PartView({ part, imageMap }: { part: ChatMessagePart; imageMap: Map<string, string> }) {
+// expandedThinking: null → marker-only (closed session, e.g. sidebar Save);
+// a Set → include thinking text only for blocks expanded in the live chat
+// (active-window Print/Save), else a compact "Thinking" marker.
+function PartView({
+  part,
+  imageMap,
+  expandedThinking
+}: {
+  part: ChatMessagePart
+  imageMap: Map<string, string>
+  expandedThinking: Set<string> | null
+}) {
   if (part.type === 'reasoning') {
     const text = (part as { text: string }).text
-    return text.trim() ? (
+    if (!text.trim()) {
+      return null
+    }
+    const expanded = expandedThinking !== null && expandedThinking.has(thinkingKey(text))
+    if (!expanded) {
+      return <div className="thinking-marker">Thinking</div>
+    }
+    return (
       <div className="thinking">
         <div className="thinking-label">Thinking</div>
         <Md>{text}</Md>
       </div>
-    ) : null
+    )
   }
 
   if (part.type === 'text') {
@@ -88,11 +124,21 @@ function PartView({ part, imageMap }: { part: ChatMessagePart; imageMap: Map<str
   return null
 }
 
-function MessageView({ message, imageMap }: { message: ChatMessage; imageMap: Map<string, string> }) {
+function MessageView({
+  message,
+  imageMap,
+  expandedThinking
+}: {
+  message: ChatMessage
+  imageMap: Map<string, string>
+  expandedThinking: Set<string> | null
+}) {
   return (
     <div className="msg">
       <div className="msg-role">{ROLE_LABEL[message.role] ?? message.role}</div>
-      {message.parts.map((part, i) => <PartView imageMap={imageMap} key={i} part={part} />)}
+      {message.parts.map((part, i) => (
+        <PartView expandedThinking={expandedThinking} imageMap={imageMap} key={i} part={part} />
+      ))}
     </div>
   )
 }
@@ -101,14 +147,19 @@ export function renderSessionPdfHtml(args: {
   messages: ChatMessage[]
   title?: string | null
   imageMap: Map<string, string>
+  // null → all thinking blocks render as a marker (closed session). A Set of
+  // thinkingKey()s → those blocks render their full text (expanded in chat).
+  expandedThinking: Set<string> | null
 }): string {
-  const { messages, title, imageMap } = args
+  const { messages, title, imageMap, expandedThinking } = args
 
   const body = renderToStaticMarkup(
     <div>
       <h1 className="pdf-title">{title || 'Untitled session'}</h1>
       <p className="pdf-sub">Hermes session export</p>
-      {messages.map(message => <MessageView imageMap={imageMap} key={message.id} message={message} />)}
+      {messages.map(message => (
+        <MessageView expandedThinking={expandedThinking} imageMap={imageMap} key={message.id} message={message} />
+      ))}
     </div>
   )
 
