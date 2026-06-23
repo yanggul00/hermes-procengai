@@ -11,6 +11,10 @@ const math = createMemoizedMathPlugin({ singleDollarTextMath: true })
 
 const ROLE_LABEL: Record<string, string> = { assistant: 'Assistant', system: 'System', tool: 'Tool', user: 'You' }
 
+function capitalize(value: string): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value
+}
+
 // Markdown body (static): tables + KaTeX math; code as plain monospace.
 function Md({ children }: { children: string }) {
   return (
@@ -55,7 +59,12 @@ function ImageOrPlaceholder({ refKey, imageMap }: { refKey: string; imageMap: Ma
 function PartView({ part, imageMap }: { part: ChatMessagePart; imageMap: Map<string, string> }) {
   if (part.type === 'reasoning') {
     const text = (part as { text: string }).text
-    return text.trim() ? <div className="thinking"><Md>{text}</Md></div> : null
+    return text.trim() ? (
+      <div className="thinking">
+        <div className="thinking-label">Thinking</div>
+        <Md>{text}</Md>
+      </div>
+    ) : null
   }
 
   if (part.type === 'text') {
@@ -73,7 +82,7 @@ function PartView({ part, imageMap }: { part: ChatMessagePart; imageMap: Map<str
       const ref = generatedImageFromResult(part.result)
       return ref ? <ImageOrPlaceholder imageMap={imageMap} refKey={ref} /> : null
     }
-    return <div className="tool-marker">🔧 {part.toolName}</div>
+    return <div className="tool-marker">🔧 {capitalize(part.toolName)}</div>
   }
 
   return null

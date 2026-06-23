@@ -9,7 +9,8 @@ export function sessionPdfCss(): string {
     .pdf-sub { color:#666; font-size:10pt; margin:0 0 20px; }
     .msg { margin:0 0 20px; break-inside:avoid; }
     .msg-role { font-weight:700; font-size:10pt; text-transform:uppercase; letter-spacing:.04em; color:#444; margin:0 0 4px; }
-    .thinking { border-left:3px solid #bbb; background:#fafafa; color:#555; padding:6px 10px; margin:6px 0; font-size:11pt; }
+    .thinking { border-left:3px solid #bbb; background:#fafafa; color:#555; padding:6px 10px; margin:6px 0; font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; font-size:9.5pt; line-height:1.45; }
+    .thinking-label { font-weight:700; font-size:8.5pt; text-transform:uppercase; letter-spacing:.06em; color:#999; margin:0 0 3px; }
     .tool-marker { font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace; font-size:10pt; color:#666; margin:6px 0; }
     table { border-collapse:collapse; margin:8px 0; max-width:100%; }
     th, td { border:1px solid #999; padding:4px 8px; text-align:left; }

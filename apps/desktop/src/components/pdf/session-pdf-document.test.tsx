@@ -28,12 +28,13 @@ describe('renderSessionPdfHtml', () => {
     expect(html).toContain('<!doctype html>')
     expect(html).toContain('My Chat') // title header
     expect(html).toContain('thinking about it') // reasoning block, expanded
+    expect(html).toContain('Thinking') // thinking label
     expect(html).toContain('<table') // markdown table
     expect(html).toContain('katex') // math typeset at render time
     expect(html).toContain('<!--KATEX_CSS-->') // marker for main-process css injection
     expect(html).toContain('data:image/png;base64,GEN') // generated image embedded
     expect(html).toContain('data:image/png;base64,UP') // uploaded image embedded
-    expect(html).toContain('terminal') // one-line marker for non-image tool call
+    expect(html).toContain('Terminal') // one-line marker for non-image tool call (capitalized)
   })
 
   it('renders a placeholder for an unresolved image', () => {
