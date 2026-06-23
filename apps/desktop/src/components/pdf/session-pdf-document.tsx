@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Streamdown } from 'streamdown'
 
@@ -30,10 +31,19 @@ export function collectExpandedThinkingKeys(): Set<string> {
   return keys
 }
 
+// Streamdown renders links as a <button> with the URL only in client JS state,
+// so static output loses the href entirely. Override `a` to emit a real anchor
+// (keeps the link — incl. numeric "citation" links — clickable in the PDF).
+function PdfLink({ href, children }: ComponentProps<'a'>) {
+  return href ? <a href={href}>{children}</a> : <>{children}</>
+}
+
+const PDF_COMPONENTS = { a: PdfLink } as ComponentProps<typeof Streamdown>['components']
+
 // Markdown body (static): tables + KaTeX math; code as plain monospace.
 function Md({ children }: { children: string }) {
   return (
-    <Streamdown mode="static" parseIncompleteMarkdown={false} plugins={{ math }}>
+    <Streamdown components={PDF_COMPONENTS} mode="static" parseIncompleteMarkdown={false} plugins={{ math }}>
       {children}
     </Streamdown>
   )

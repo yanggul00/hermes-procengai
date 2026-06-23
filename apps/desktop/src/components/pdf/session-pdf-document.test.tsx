@@ -44,6 +44,19 @@ describe('renderSessionPdfHtml', () => {
     expect(html).toContain('thinking-marker') // just the marker
   })
 
+  it('renders web links as real anchors with the href preserved', () => {
+    const html = renderSessionPdfHtml({
+      messages: [
+        { id: '1', role: 'assistant', parts: [{ type: 'text', text: 'See [1](https://ref.example.org/1).' }] }
+      ] as never,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null
+    })
+    expect(html).toContain('href="https://ref.example.org/1"')
+    expect(html).not.toContain('data-streamdown="link"') // not the hrefless button
+  })
+
   it('renders a placeholder for an unresolved image', () => {
     const html = renderSessionPdfHtml({
       messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: '@image:/missing.png' }] }] as never,
