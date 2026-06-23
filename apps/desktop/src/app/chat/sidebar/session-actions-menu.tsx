@@ -19,6 +19,7 @@ import { renameSession } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { exportSession } from '@/lib/session-export'
+import { saveSessionPdf } from '@/lib/session-pdf'
 import { activeGateway } from '@/store/gateway'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeSessionId, $selectedStoredSessionId, setSessions } from '@/store/session'
@@ -128,6 +129,15 @@ function useSessionActions({ sessionId, title, pinned = false, profile, onPin, o
       onSelect: () => {
         triggerHaptic('selection')
         void exportSession(sessionId, { profile, title })
+      }
+    },
+    {
+      disabled: !sessionId,
+      icon: 'file-pdf',
+      label: r.savePdf,
+      onSelect: () => {
+        triggerHaptic('selection')
+        void saveSessionPdf(sessionId, { profile, title })
       }
     },
     {

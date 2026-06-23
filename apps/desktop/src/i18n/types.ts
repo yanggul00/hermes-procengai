@@ -914,6 +914,7 @@ export interface Translations {
       unpin: string
       copyId: string
       export: string
+      savePdf: string
       rename: string
       archive: string
       newWindow: string
@@ -1517,6 +1518,8 @@ export interface Translations {
     modelSwitchFailed: string
     sessionExported: string
     sessionExportFailed: string
+    sessionPdfSaved: string
+    sessionPdfFailed: string
     imageSaved: string
     downloadStarted: string
     restartToUseSaveImage: string
