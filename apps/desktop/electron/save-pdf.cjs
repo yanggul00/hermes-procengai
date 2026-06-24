@@ -8,7 +8,27 @@ function createSavePdf({ BrowserWindow, dialog, fs, getMainWindow }) {
 
     try {
       await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html)))
-      const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' })
+
+      // Running header (centered <title> = "… - ProcEngAI") + footer (date & time
+      // bottom-left, page/total bottom-right). The `.title`, `.pageNumber` and
+      // `.totalPages` classes are filled by Chromium; the date is stamped now.
+      const dateText = new Date().toLocaleString()
+      const headerTemplate =
+        '<div style="font-size:9px;width:100%;text-align:center;color:#666;"><span class="title"></span></div>'
+      const footerTemplate =
+        '<div style="font-size:9px;width:100%;color:#666;padding:0 0.5in;display:flex;justify-content:space-between;">' +
+        `<span>${dateText}</span>` +
+        '<span><span class="pageNumber"></span> / <span class="totalPages"></span></span>' +
+        '</div>'
+
+      const pdf = await win.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        displayHeaderFooter: true,
+        headerTemplate,
+        footerTemplate,
+        margins: { top: 0.6, bottom: 0.6, left: 0.5, right: 0.5 }
+      })
       const result = await dialog.showSaveDialog(getMainWindow(), {
         title: 'Save Session as PDF',
         defaultPath: defaultName,

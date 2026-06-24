@@ -7,8 +7,14 @@ function fakeDeps(overrides = {}) {
   const writes = []
   const destroyed = []
   const loaded = []
+  const printOpts = []
   const win = {
-    webContents: { printToPDF: async () => Buffer.from('PDF') },
+    webContents: {
+      printToPDF: async opts => {
+        printOpts.push(opts)
+        return Buffer.from('PDF')
+      }
+    },
     loadURL: async url => loaded.push(url),
     destroy: () => destroyed.push(true)
   }
@@ -17,6 +23,7 @@ function fakeDeps(overrides = {}) {
     writes,
     destroyed,
     loaded,
+    printOpts,
     deps: {
       BrowserWindow: function () {
         return win
@@ -28,6 +35,16 @@ function fakeDeps(overrides = {}) {
     }
   }
 }
+
+test('prints with a header/footer (title, date, page/total)', async () => {
+  const { deps, printOpts } = fakeDeps()
+  await createSavePdf(deps)({ html: '<html></html>', defaultName: 'x.pdf' })
+  const opts = printOpts[0]
+  assert.strictEqual(opts.displayHeaderFooter, true)
+  assert.match(opts.headerTemplate, /class="title"/)
+  assert.match(opts.footerTemplate, /class="pageNumber"/)
+  assert.match(opts.footerTemplate, /class="totalPages"/)
+})
 
 test('writes pdf to chosen path and reports saved; window destroyed', async () => {
   const { deps, writes, destroyed } = fakeDeps()

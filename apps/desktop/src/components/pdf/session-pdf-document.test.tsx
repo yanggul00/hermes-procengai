@@ -74,6 +74,11 @@ describe('renderSessionPdfHtml', () => {
     expect(html).toContain('(https://ref.example.org/1)')
   })
 
+  it('sets the document <title> with the ProcEngAI suffix (header source)', () => {
+    const html = renderSessionPdfHtml({ messages, title: 'My Chat', imageMap, expandedThinking: null })
+    expect(html).toContain('<title>My Chat - ProcEngAI</title>')
+  })
+
   it('omits Streamdown control buttons (copy/download/fullscreen) on code/tables', () => {
     const html = renderSessionPdfHtml({
       messages: [

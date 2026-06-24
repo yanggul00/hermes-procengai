@@ -11,6 +11,13 @@ import { sessionPdfCss } from '@/lib/session-pdf-css'
 
 const math = createMemoizedMathPlugin({ singleDollarTextMath: true })
 
+// Brand suffix appended to the document title (header on both Save and Print).
+const TITLE_SUFFIX = ' - ProcEngAI'
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 const ROLE_LABEL: Record<string, string> = { assistant: 'Assistant', system: 'System', tool: 'Tool', user: 'You' }
 
 // Content key for matching a reasoning part against the live chat DOM: lowercase
@@ -197,5 +204,7 @@ export function renderSessionPdfHtml(args: {
     </ShowLinkUrlsContext.Provider>
   )
 
-  return `<!doctype html><html><head><meta charset="utf-8"><!--KATEX_CSS--><style>${sessionPdfCss()}</style></head><body>${body}</body></html>`
+  const headTitle = escapeHtml(`${title || 'Untitled session'}${TITLE_SUFFIX}`)
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${headTitle}</title><!--KATEX_CSS--><style>${sessionPdfCss()}</style></head><body>${body}</body></html>`
 }
