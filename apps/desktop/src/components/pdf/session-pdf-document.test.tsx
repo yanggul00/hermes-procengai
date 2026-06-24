@@ -74,6 +74,24 @@ describe('renderSessionPdfHtml', () => {
     expect(html).toContain('(https://ref.example.org/1)')
   })
 
+  it('omits Streamdown control buttons (copy/download/fullscreen) on code/tables', () => {
+    const html = renderSessionPdfHtml({
+      messages: [
+        {
+          id: '1',
+          role: 'assistant',
+          parts: [{ type: 'text', text: '```python\nx=1\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |' }]
+        }
+      ] as never,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null
+    })
+    // Links render as <a>, tool markers as <div> — so any <button> would be a
+    // Streamdown control. controls={false} removes them.
+    expect(html).not.toContain('<button')
+  })
+
   it('renders a placeholder for an unresolved image', () => {
     const html = renderSessionPdfHtml({
       messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: '@image:/missing.png' }] }] as never,

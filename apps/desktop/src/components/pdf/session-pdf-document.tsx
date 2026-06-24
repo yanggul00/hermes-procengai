@@ -62,7 +62,7 @@ const PDF_COMPONENTS = { a: PdfLink } as ComponentProps<typeof Streamdown>['comp
 // Markdown body (static): tables + KaTeX math; code as plain monospace.
 function Md({ children }: { children: string }) {
   return (
-    <Streamdown components={PDF_COMPONENTS} mode="static" parseIncompleteMarkdown={false} plugins={{ math }}>
+    <Streamdown components={PDF_COMPONENTS} controls={false} mode="static" parseIncompleteMarkdown={false} plugins={{ math }}>
       {children}
     </Streamdown>
   )
