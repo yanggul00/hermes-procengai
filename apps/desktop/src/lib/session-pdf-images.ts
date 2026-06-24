@@ -30,12 +30,14 @@ function imageRefsFromText(text: string): string[] {
 
   for (const match of text.matchAll(IMAGE_REF_RE)) {
     const raw = match[1] ?? match[2] ?? match[3] ?? match[4] ?? ''
-    if (raw) refs.push(raw)
+
+    if (raw) {refs.push(raw)}
   }
 
   for (const match of text.matchAll(MEDIA_HREF_RE)) {
     const path = mediaPathFromMarkdownHref(`#media:${match[1]}`)
-    if (path && mediaKind(path) === 'image') refs.push(path)
+
+    if (path && mediaKind(path) === 'image') {refs.push(path)}
   }
 
   return refs
@@ -51,11 +53,13 @@ export function collectImageRefs(messages: ChatMessage[]): string[] {
     for (const part of message.parts) {
       if (part.type === 'tool-call' && part.toolName === 'image_generate') {
         const ref = generatedImageFromResult(part.result)
-        if (ref) seen.add(ref)
+
+        if (ref) {seen.add(ref)}
+
         continue
       }
 
-      for (const ref of imageRefsFromText(partText(part))) seen.add(ref)
+      for (const ref of imageRefsFromText(partText(part))) {seen.add(ref)}
     }
   }
 
@@ -66,9 +70,11 @@ export function collectImageRefs(messages: ChatMessage[]): string[] {
 // generated-image-result.tsx (inline → as-is; remote → gateway proxy; local →
 // readFileDataUrl).
 export async function resolveImageRef(ref: string): Promise<string> {
-  if (isInlineSrc(ref)) return ref
-  if (window.hermesDesktop && isRemoteGateway()) return gatewayMediaDataUrl(ref)
-  if (window.hermesDesktop?.readFileDataUrl) return window.hermesDesktop.readFileDataUrl(filePathFromMediaPath(ref))
+  if (isInlineSrc(ref)) {return ref}
+
+  if (window.hermesDesktop && isRemoteGateway()) {return gatewayMediaDataUrl(ref)}
+
+  if (window.hermesDesktop?.readFileDataUrl) {return window.hermesDesktop.readFileDataUrl(filePathFromMediaPath(ref))}
 
   return mediaExternalUrl(ref)
 }

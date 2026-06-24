@@ -28,6 +28,7 @@ export async function buildSessionPdfHtml(sessionId: string, opts: SessionPdfOpt
   const chat = toChatMessages(messages)
   const imageMap = await resolveImageMap(collectImageRefs(chat))
   const expandedThinking = opts.honorThinkingExpansion ? collectExpandedThinkingKeys() : null
+
   const html = renderSessionPdfHtml({
     messages: chat,
     title: opts.title,
@@ -35,6 +36,7 @@ export async function buildSessionPdfHtml(sessionId: string, opts: SessionPdfOpt
     expandedThinking,
     showLinkUrls: opts.inlineLinkUrls
   })
+
   const katexCss = await window.hermesDesktop.katexCss()
 
   return html.replace('<!--KATEX_CSS-->', `<style>${katexCss}</style>`)

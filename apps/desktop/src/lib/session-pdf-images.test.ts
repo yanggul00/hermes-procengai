@@ -23,6 +23,7 @@ describe('collectImageRefs (normalized ChatMessage parts)', () => {
     const refs = collectImageRefs([
       { id: '1', role: 'assistant', parts: [{ type: 'tool-call', toolName: 'image_generate', result: { image: '/gen.png' } }] }
     ] as never)
+
     expect(refs).toContain('/gen.png')
   })
 
@@ -30,6 +31,7 @@ describe('collectImageRefs (normalized ChatMessage parts)', () => {
     const refs = collectImageRefs([
       { id: '1', role: 'user', parts: [{ type: 'text', text: '@image:/up/photo.png\nWhat is this?' }] }
     ] as never)
+
     expect(refs).toContain('/up/photo.png')
   })
 
@@ -41,6 +43,7 @@ describe('collectImageRefs (normalized ChatMessage parts)', () => {
         parts: [{ type: 'text', text: 'See [Image: a.png](#media:%2Ftmp%2Fa.png) and [Doc](#media:%2Ftmp%2Fb.pdf)' }]
       }
     ] as never)
+
     expect(refs).toContain('/tmp/a.png')
     expect(refs).not.toContain('/tmp/b.pdf')
   })
@@ -50,6 +53,7 @@ describe('collectImageRefs (normalized ChatMessage parts)', () => {
       { id: '1', role: 'user', parts: [{ type: 'text', text: '@image:/a.png' }] },
       { id: '2', role: 'user', parts: [{ type: 'text', text: '@image:/a.png' }] }
     ] as never)
+
     expect(refs).toEqual(['/a.png'])
   })
 })
@@ -61,6 +65,7 @@ describe('resolveImageRef', () => {
   })
   it('reads local files via readFileDataUrl', async () => {
     const readFileDataUrl = vi.fn().mockResolvedValue('data:image/png;base64,LOCAL')
+
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = { readFileDataUrl }
     expect(await resolveImageRef('/tmp/up.png')).toBe('data:image/png;base64,LOCAL')
     expect(readFileDataUrl).toHaveBeenCalledWith('/tmp/up.png')

@@ -1,4 +1,4 @@
-import { createContext, useContext, type ComponentProps } from 'react'
+import { type ComponentProps, createContext, useContext } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Streamdown } from 'streamdown'
 
@@ -31,10 +31,13 @@ export function thinkingKey(text: string): string {
 // nothing — so presence in the DOM == expanded. Reflects the active session only.
 export function collectExpandedThinkingKeys(): Set<string> {
   const keys = new Set<string>()
+
   for (const el of document.querySelectorAll('[data-slot="aui_reasoning-text"]')) {
     const key = thinkingKey(el.textContent ?? '')
-    if (key) keys.add(key)
+
+    if (key) {keys.add(key)}
   }
+
   return keys
 }
 
@@ -83,19 +86,25 @@ function splitTextAndImages(text: string): { refs: string[]; text: string } {
 
   let cleaned = text.replace(/\[([^\]]*)\]\(#media:([^)]+)\)/g, (whole, _label, enc) => {
     const path = mediaPathFromMarkdownHref(`#media:${enc}`)
+
     if (path && mediaKind(path) === 'image') {
       refs.push(path)
+
       return ''
     }
+
     return whole
   })
 
   cleaned = cleaned.replace(/@image:(?:"([^"\n]+)"|'([^'\n]+)'|`([^`\n]+)`|(\S+))/g, (whole, a, b, c, d) => {
     const path = a ?? b ?? c ?? d ?? ''
+
     if (path) {
       refs.push(path)
+
       return ''
     }
+
     return whole
   })
 
@@ -104,6 +113,7 @@ function splitTextAndImages(text: string): { refs: string[]; text: string } {
 
 function ImageOrPlaceholder({ refKey, imageMap }: { refKey: string; imageMap: Map<string, string> }) {
   const src = imageMap.get(refKey)
+
   return src ? <img alt="" src={src} /> : <div className="img-missing">[image unavailable: {mediaName(refKey)}]</div>
 }
 
@@ -121,13 +131,17 @@ function PartView({
 }) {
   if (part.type === 'reasoning') {
     const text = (part as { text: string }).text
+
     if (!text.trim()) {
       return null
     }
+
     const expanded = expandedThinking !== null && expandedThinking.has(thinkingKey(text))
+
     if (!expanded) {
       return <div className="thinking-marker">Thinking</div>
     }
+
     return (
       <div className="thinking">
         <div className="thinking-label">Thinking</div>
@@ -138,6 +152,7 @@ function PartView({
 
   if (part.type === 'text') {
     const { refs, text } = splitTextAndImages((part as { text: string }).text)
+
     return (
       <>
         {text && <Md>{text}</Md>}
@@ -149,11 +164,14 @@ function PartView({
   if (part.type === 'tool-call') {
     if (part.toolName === 'image_generate') {
       const ref = generatedImageFromResult(part.result)
+
       return ref ? <ImageOrPlaceholder imageMap={imageMap} refKey={ref} /> : null
     }
+
     // Mirror the chat's human-friendly tool headline ("Ran foo.py",
     // "Analyzed image") via the same buildToolView used by the live chat.
     const view = buildToolView(part as unknown as ToolPart, '')
+
     return <div className="tool-marker">🔧 {view.title}</div>
   }
 

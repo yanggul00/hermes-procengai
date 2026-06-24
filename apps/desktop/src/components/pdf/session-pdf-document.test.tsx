@@ -69,6 +69,7 @@ describe('renderSessionPdfHtml', () => {
       expandedThinking: null,
       showLinkUrls: true
     })
+
     expect(html).toContain('href="https://ref.example.org/1"')
     expect(html).toContain('class="link-url"') // URL shown as visible text
     expect(html).toContain('(https://ref.example.org/1)')
@@ -92,6 +93,7 @@ describe('renderSessionPdfHtml', () => {
       imageMap: new Map(),
       expandedThinking: null
     })
+
     // Links render as <a>, tool markers as <div> — so any <button> would be a
     // Streamdown control. controls={false} removes them.
     expect(html).not.toContain('<button')
@@ -104,6 +106,7 @@ describe('renderSessionPdfHtml', () => {
       imageMap: new Map([['/missing.png', '']]),
       expandedThinking: null
     })
+
     expect(html).toContain('image unavailable')
   })
 })
