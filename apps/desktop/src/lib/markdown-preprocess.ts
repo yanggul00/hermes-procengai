@@ -319,8 +319,14 @@ function normalizeFenceBlocks(text: string): string {
 // (you'd have to write a literal `\(` followed eventually by a literal
 // `\)` with NO interleaving newline-paragraph-break) that false positives
 // are extremely unlikely.
-const LATEX_INLINE_RE = /\\\(([^\n]+?)\\\)/g
-const LATEX_DISPLAY_RE = /\\\[([\s\S]+?)\\\]/g
+//
+// The `(?<!\\)` guard is load-bearing: a LaTeX line break with extra space,
+// `\\[4pt]` (or `\\(...`), CONTAINS a `\[`/`\(` whose bracket is preceded by a
+// second backslash. Without the guard that inner `\[` is read as a display
+// opener and matched non-greedily to a LATER block's `\]`, splicing `$$` into
+// the middle of an equation and leaving raw LaTeX on screen / in the PDF.
+const LATEX_INLINE_RE = /(?<!\\)\\\(([^\n]+?)\\\)/g
+const LATEX_DISPLAY_RE = /(?<!\\)\\\[([\s\S]+?)\\\]/g
 
 function rewriteLatexBracketDelimiters(text: string): string {
   return text

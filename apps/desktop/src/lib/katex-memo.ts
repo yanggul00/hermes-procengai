@@ -64,6 +64,34 @@ interface MathPluginConfig {
   errorColor?: string
 }
 
+/**
+ * Normalize a TeX string for KaTeX, which is stricter than full LaTeX/MathJax.
+ * Applied to every math node (any delimiter) right before rendering, so it can
+ * only ever touch math — never prose. Two patterns LLMs commonly emit:
+ *
+ *  1. Markdown-escaped asterisks inside math (`x^\*`, `\mu_j^\*`). KaTeX has no
+ *     `\*` control sequence and errors out; `*` is the correct math asterisk.
+ *  2. A numbered system written as one `\tag` per row inside a single block
+ *     (`\tag{1}` … `\tag{n}`). KaTeX allows only ONE `\tag` per expression and
+ *     throws "Multiple \tag"; full LaTeX/MathJax accept it. When there are 2+,
+ *     rewrite each into an inline `(n)` label so the whole block still renders
+ *     with its numbering intact. A lone `\tag` is left as-is (KaTeX renders it).
+ *
+ * Without this, such a block fails to parse and KaTeX falls back to showing the
+ * raw LaTeX source — the exact symptom this guards against.
+ */
+export function sanitizeTex(value: string): string {
+  let out = value.replace(/\\\*/g, '*')
+
+  const tagCount = (out.match(/\\tag\{/g) ?? []).length
+
+  if (tagCount > 1) {
+    out = out.replace(/\\tag\{([^}]*)\}/g, '\\quad(\\text{$1})')
+  }
+
+  return out
+}
+
 /** Cached rendered hast — children to splice into the math node's parent. */
 type CachedRender = ElementContent[]
 
@@ -212,7 +240,7 @@ function createMemoizedRehypeKatex(options: KatexMemoOptions = {}): Pluggable {
           return
         }
 
-        const value = toText(scope, { whitespace: 'pre' })
+        const value = sanitizeTex(toText(scope, { whitespace: 'pre' }))
         const key = cacheKey(displayMode, value)
         let cached = cache.get(key)
 

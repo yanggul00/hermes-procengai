@@ -16,6 +16,9 @@ export interface SessionPdfOpts {
   // Print path: render each link's URL as visible text (the OS print dialog
   // flattens clickable annotations). Save omits it (links stay clickable).
   inlineLinkUrls?: boolean
+  // Print path: bake a running page header into the HTML (Save uses printToPDF's
+  // headerTemplate instead, so it leaves this off).
+  runningHeader?: boolean
 }
 
 // Fetch a session, normalize it the same way the chat does (toChatMessages),
@@ -34,7 +37,8 @@ export async function buildSessionPdfHtml(sessionId: string, opts: SessionPdfOpt
     title: opts.title,
     imageMap,
     expandedThinking,
-    showLinkUrls: opts.inlineLinkUrls
+    showLinkUrls: opts.inlineLinkUrls,
+    runningHeader: opts.runningHeader
   })
 
   const katexCss = await window.hermesDesktop.katexCss()

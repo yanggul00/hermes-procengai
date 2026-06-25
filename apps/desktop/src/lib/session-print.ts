@@ -12,7 +12,8 @@ export async function printSessionPdf(sessionId: string, opts: SessionPdfOpts = 
 
   try {
     // Print flattens clickable link annotations → show URLs as visible text.
-    const html = await buildSessionPdfHtml(sessionId, { ...opts, inlineLinkUrls: true })
+    // Print also can't use printToPDF's header template → bake a running header in.
+    const html = await buildSessionPdfHtml(sessionId, { ...opts, inlineLinkUrls: true, runningHeader: true })
 
     const iframe = document.createElement('iframe')
     iframe.style.position = 'fixed'

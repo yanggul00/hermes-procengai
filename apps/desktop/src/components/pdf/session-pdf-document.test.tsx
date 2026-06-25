@@ -99,6 +99,118 @@ describe('renderSessionPdfHtml', () => {
     expect(html).not.toContain('<button')
   })
 
+  it('renders \\[...\\] bracket math via KaTeX, not raw LaTeX source', () => {
+    const html = renderSessionPdfHtml({
+      messages: [
+        { id: '1', role: 'assistant', parts: [{ type: 'text', text: 'Equation:\n\n\\[ E = mc^2 \\]' }] }
+      ] as never,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null
+    })
+
+    expect(html).toContain('class="katex"') // bracket form converted + rendered by KaTeX
+    expect(html).not.toContain('\\[') // raw bracket delimiter is gone
+  })
+
+  it('renders \\(...\\) inline math via KaTeX, not raw LaTeX source', () => {
+    const html = renderSessionPdfHtml({
+      messages: [
+        { id: '1', role: 'assistant', parts: [{ type: 'text', text: 'Inline \\(a^2 + b^2\\) here.' }] }
+      ] as never,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null
+    })
+
+    expect(html).toContain('class="katex"') // bracket form converted + rendered
+    expect(html).not.toContain('\\(') // raw inline delimiter is gone
+  })
+
+  it('renders a multi-line \\[ \\begin{aligned} ... \\] block as display math', () => {
+    // The real-world case from the bug report: a multi-line aligned environment
+    // in LaTeX display brackets. Multi-line `\[..\]` becomes a `$$\n..\n$$` block,
+    // which remark-math renders in DISPLAY mode (centered) — like the chat shows.
+    const html = renderSessionPdfHtml({
+      messages: [
+        {
+          id: '1',
+          role: 'assistant',
+          parts: [{ type: 'text', text: '\\[\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n\\]' }]
+        }
+      ] as never,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null
+    })
+
+    expect(html).toContain('katex-display') // rendered as centered display math
+    expect(html).toContain('display="block"') // KaTeX display mode, not inline
+    // The aligned environment became a real MathML table (rendered), not a bare
+    // <p> dump of the source. (KaTeX keeps the TeX in an <annotation>, which is
+    // expected — the regression was the source leaking as visible paragraph text.)
+    expect(html).toContain('<mtable')
+  })
+
+  it('renders a display block with a \\\\[4pt] line break AND a following equation (no raw leak)', () => {
+    // Regression: `\\[4pt]` (a LaTeX line break) inside one block used to be
+    // mistaken for a display opener and swallow the next block's `\]`, leaving
+    // both as raw text. Both must now render via KaTeX.
+    const text = '\\[\n\\begin{aligned}\na &= b \\\\[4pt]\nc &= d\n\\end{aligned}\n\\]\n\nthen \\( x = 1 \\) ok'
+
+    const html = renderSessionPdfHtml({
+      messages: [{ id: '1', role: 'assistant', parts: [{ type: 'text', text }] }] as never,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null
+    })
+
+    expect(html).toContain('katex-display') // the aligned block rendered as display math
+    expect(html).toContain('<mtable') // ...as a real math table, not source text
+    // The following inline equation also rendered (its delimiter wasn't eaten).
+    expect(html).toContain('class="katex"')
+    expect(html).not.toContain('<p>then \\( x = 1 \\) ok') // not raw paragraph text
+  })
+
+  it('renders a KKT-style block (escaped stars + multiple \\tag) via KaTeX, not raw', () => {
+    // The real bug-report block: markdown-escaped asterisks (x^\*) and a numbered
+    // system with one \tag per row — both invalid for KaTeX until sanitized.
+    const text =
+      '\\[\n\\begin{aligned}\n\\nabla f(x^\\*) &= 0 \\tag{1}\\\\[4pt]\nc_i(x^\\*) &= 0 \\tag{2}\\\\\nc_j(x^\\*) &\\ge 0 \\tag{3}\n\\end{aligned}\n\\]'
+
+    const html = renderSessionPdfHtml({
+      messages: [{ id: '1', role: 'assistant', parts: [{ type: 'text', text }] }] as never,
+      title: 't',
+      imageMap: new Map(),
+      expandedThinking: null
+    })
+
+    expect(html).toContain('katex-display') // rendered as display math
+    expect(html).toContain('<mtable') // the aligned system became a real math table
+    expect(html).not.toContain('\\tag{') // multiple tags rewritten to inline labels
+    expect(html).not.toContain('x^\\*') // escaped stars normalized
+  })
+
+  it('runningHeader on (Print): injects a print-only running header with the title + suffix', () => {
+    const html = renderSessionPdfHtml({
+      messages,
+      title: 'My Chat',
+      imageMap,
+      expandedThinking: null,
+      runningHeader: true
+    })
+
+    expect(html).toContain('pdf-running-header')
+    expect(html).toContain('My Chat - ProcEngAI') // header text (also the <title>)
+    expect(html).toContain('@page')
+    expect(html).toContain('table-header-group') // repeats at the TOP of every printed page
+  })
+
+  it('runningHeader off (Save default): no running-header element (printToPDF adds it)', () => {
+    const html = renderSessionPdfHtml({ messages, title: 'My Chat', imageMap, expandedThinking: null })
+    expect(html).not.toContain('pdf-running-header')
+  })
+
   it('renders a placeholder for an unresolved image', () => {
     const html = renderSessionPdfHtml({
       messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: '@image:/missing.png' }] }] as never,

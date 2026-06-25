@@ -7,6 +7,7 @@ function fakeDeps(overrides = {}) {
   const writes = []
   const destroyed = []
   const loaded = []
+  const unlinked = []
   const printOpts = []
   const win = {
     webContents: {
@@ -15,7 +16,7 @@ function fakeDeps(overrides = {}) {
         return Buffer.from('PDF')
       }
     },
-    loadURL: async url => loaded.push(url),
+    loadFile: async p => loaded.push(p),
     destroy: () => destroyed.push(true)
   }
 
@@ -23,13 +24,19 @@ function fakeDeps(overrides = {}) {
     writes,
     destroyed,
     loaded,
+    unlinked,
     printOpts,
     deps: {
       BrowserWindow: function () {
         return win
       },
       dialog: { showSaveDialog: async () => ({ canceled: false, filePath: '/out/x.pdf' }) },
-      fs: { promises: { writeFile: async (p, b) => writes.push([p, b]) } },
+      fs: {
+        promises: {
+          writeFile: async (p, b) => writes.push([p, b]),
+          unlink: async p => unlinked.push(p)
+        }
+      },
       getMainWindow: () => ({}),
       ...overrides
     }
@@ -50,26 +57,36 @@ test('writes pdf to chosen path and reports saved; window destroyed', async () =
   const { deps, writes, destroyed } = fakeDeps()
   const res = await createSavePdf(deps)({ html: '<html></html>', defaultName: 'x.pdf' })
   assert.deepStrictEqual(res, { saved: true })
-  assert.strictEqual(writes.length, 1)
-  assert.strictEqual(writes[0][0], '/out/x.pdf')
+  // The PDF is written to the chosen path (a temp .html write also happens).
+  assert.ok(writes.some(([p]) => p === '/out/x.pdf'))
   assert.strictEqual(destroyed.length, 1)
 })
 
-test('cancel returns saved:false and writes nothing', async () => {
-  const { deps, writes } = fakeDeps({ dialog: { showSaveDialog: async () => ({ canceled: true }) } })
-  const res = await createSavePdf(deps)({ html: '', defaultName: 'x.pdf' })
-  assert.deepStrictEqual(res, { saved: false })
-  assert.strictEqual(writes.length, 0)
-})
-
-test('loads the html it was given', async () => {
-  const { deps, loaded } = fakeDeps()
+test('loads the html from a temp file (avoids the data: URL size limit)', async () => {
+  const { deps, loaded, writes, unlinked } = fakeDeps()
   await createSavePdf(deps)({ html: '<html>BODY</html>', defaultName: 'x.pdf' })
-  assert.ok(decodeURIComponent(loaded[0]).includes('BODY'))
+  // The exact temp file that was written is the one loaded...
+  const tmpWrite = writes.find(([, b]) => String(b).includes('BODY'))
+  assert.ok(tmpWrite, 'html should be written to a temp file')
+  assert.ok(tmpWrite[0].endsWith('.html'))
+  assert.strictEqual(loaded[0], tmpWrite[0])
+  // ...and it is cleaned up afterwards.
+  assert.ok(unlinked.includes(tmpWrite[0]))
 })
 
-test('destroys the window even when printToPDF throws', async () => {
+test('cancel returns saved:false and writes no pdf', async () => {
+  const { deps, writes, unlinked } = fakeDeps({ dialog: { showSaveDialog: async () => ({ canceled: true }) } })
+  const res = await createSavePdf(deps)({ html: '<html>BODY</html>', defaultName: 'x.pdf' })
+  assert.deepStrictEqual(res, { saved: false })
+  // Only the temp .html is written; no PDF output write happens on cancel.
+  assert.ok(writes.every(([p]) => p.endsWith('.html')))
+  // Temp file still cleaned up.
+  assert.strictEqual(unlinked.length, 1)
+})
+
+test('destroys the window and cleans up temp even when printToPDF throws', async () => {
   const destroyed = []
+  const unlinked = []
   const deps = {
     BrowserWindow: function () {
       return {
@@ -78,14 +95,15 @@ test('destroys the window even when printToPDF throws', async () => {
             throw new Error('boom')
           }
         },
-        loadURL: async () => {},
+        loadFile: async () => {},
         destroy: () => destroyed.push(true)
       }
     },
     dialog: { showSaveDialog: async () => ({ canceled: false, filePath: '/out/x.pdf' }) },
-    fs: { promises: { writeFile: async () => {} } },
+    fs: { promises: { writeFile: async () => {}, unlink: async p => unlinked.push(p) } },
     getMainWindow: () => ({})
   }
   await assert.rejects(() => createSavePdf(deps)({ html: '', defaultName: 'x.pdf' }), /boom/)
   assert.strictEqual(destroyed.length, 1)
+  assert.strictEqual(unlinked.length, 1)
 })

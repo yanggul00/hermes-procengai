@@ -21,8 +21,9 @@ describe('printSessionPdf', () => {
     vi.spyOn(document.body, 'removeChild').mockImplementation(node => node)
     const { printSessionPdf } = await import('./session-print')
     await printSessionPdf('sess-1', { title: 't' })
-    // Print forces inlineLinkUrls so URLs are visible (the print dialog flattens links).
-    expect(buildSessionPdfHtml).toHaveBeenCalledWith('sess-1', { title: 't', inlineLinkUrls: true })
+    // Print forces inlineLinkUrls so URLs are visible (the print dialog flattens links)
+    // and runningHeader so the header is baked in (window.print can't use printToPDF's).
+    expect(buildSessionPdfHtml).toHaveBeenCalledWith('sess-1', { title: 't', inlineLinkUrls: true, runningHeader: true })
     // print() runs inside a settle setTimeout — advance fake timers to fire it.
     await vi.runAllTimersAsync()
     expect(printed.length).toBe(1)

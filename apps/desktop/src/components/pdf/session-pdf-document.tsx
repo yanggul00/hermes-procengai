@@ -6,6 +6,7 @@ import { buildToolView, type ToolPart } from '@/components/assistant-ui/tool-fal
 import type { ChatMessage, ChatMessagePart } from '@/lib/chat-messages'
 import { generatedImageFromResult } from '@/lib/generated-images'
 import { createMemoizedMathPlugin } from '@/lib/katex-memo'
+import { preprocessMarkdown } from '@/lib/markdown-preprocess'
 import { mediaKind, mediaName, mediaPathFromMarkdownHref } from '@/lib/media'
 import { sessionPdfCss } from '@/lib/session-pdf-css'
 
@@ -70,10 +71,15 @@ function PdfLink({ href, children }: ComponentProps<'a'>) {
 const PDF_COMPONENTS = { a: PdfLink } as ComponentProps<typeof Streamdown>['components']
 
 // Markdown body (static): tables + KaTeX math; code as plain monospace.
+// Run the SAME preprocessing the live chat applies (preprocessMarkdown) so the
+// PDF matches what's on screen — most importantly it rewrites LaTeX bracket
+// delimiters (`\[..\]` / `\(..\)`) into the `$$..$$` / `$..$` form remark-math
+// understands, so display/inline math renders instead of leaking raw source.
+// (We skip the chat's streaming-only tail-repair: PDF content is always complete.)
 function Md({ children }: { children: string }) {
   return (
     <Streamdown components={PDF_COMPONENTS} controls={false} mode="static" parseIncompleteMarkdown={false} plugins={{ math }}>
-      {children}
+      {preprocessMarkdown(children)}
     </Streamdown>
   )
 }
@@ -207,8 +213,12 @@ export function renderSessionPdfHtml(args: {
   // Print path: also show each link's URL as visible text (the OS print dialog
   // flattens clickable annotations). Save leaves this off (links stay clickable).
   showLinkUrls?: boolean
+  // Print path: bake a running page header (title + suffix) into the HTML. The
+  // OS print dialog (window.print) does NOT use the printToPDF headerTemplate the
+  // Save path relies on, so without this Print has no header. Save leaves it off.
+  runningHeader?: boolean
 }): string {
-  const { messages, title, imageMap, expandedThinking, showLinkUrls = false } = args
+  const { messages, title, imageMap, expandedThinking, showLinkUrls = false, runningHeader = false } = args
 
   const body = renderToStaticMarkup(
     <ShowLinkUrlsContext.Provider value={showLinkUrls}>
@@ -224,5 +234,26 @@ export function renderSessionPdfHtml(args: {
 
   const headTitle = escapeHtml(`${title || 'Untitled session'}${TITLE_SUFFIX}`)
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${headTitle}</title><!--KATEX_CSS--><style>${sessionPdfCss()}</style></head><body>${body}</body></html>`
+  // Print path running header. window.print() can't use printToPDF's header
+  // template, so repeat the header at the TOP of every page with a <thead>
+  // (display:table-header-group): Chromium repeats the thead on each printed page
+  // and flows the content below it in <tbody>, so it never overlaps the body.
+  // Child combinators keep these layout rules off the markdown tables nested in
+  // the content. The header is hidden on screen (the iframe is offscreen anyway).
+  const runningHeaderCss = runningHeader
+    ? '<style>.pdf-running-header{display:none;}' +
+      '@media print{@page{margin:0.4in 0.5in 0.6in;}' +
+      'table.pdf-page{width:100%;border-collapse:collapse;}' +
+      'table.pdf-page>thead{display:table-header-group;}' +
+      'table.pdf-page>thead>tr>td,table.pdf-page>tbody>tr>td{padding:0;border:0;}' +
+      '.pdf-running-header{display:block;text-align:center;font-family:Georgia,serif;font-size:9pt;' +
+      'color:#666;padding:0 0 6px;margin:0 0 10px;border-bottom:1px solid #ddd;}}</style>'
+    : ''
+
+  const content = runningHeader
+    ? `<table class="pdf-page"><thead><tr><td><div class="pdf-running-header">${headTitle}</div></td></tr></thead>` +
+      `<tbody><tr><td>${body}</td></tr></tbody></table>`
+    : body
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${headTitle}</title><!--KATEX_CSS--><style>${sessionPdfCss()}</style>${runningHeaderCss}</head><body>${content}</body></html>`
 }

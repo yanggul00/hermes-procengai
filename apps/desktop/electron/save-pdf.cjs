@@ -1,3 +1,7 @@
+const crypto = require('node:crypto')
+const os = require('node:os')
+const path = require('node:path')
+
 // Offscreen-render a COMPLETE HTML string to a PDF and save it via the OS
 // dialog. CSS is already inlined by the renderer (buildSessionPdfHtml), so the
 // main process does no CSS work here. Dependency-injected so it unit-tests
@@ -6,8 +10,15 @@ function createSavePdf({ BrowserWindow, dialog, fs, getMainWindow }) {
   return async function savePdf({ html, defaultName }) {
     const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
 
+    // The document embeds KaTeX fonts as base64, so it is far too large for a
+    // `data:` URL — Chromium rejects long ones with ERR_INVALID_URL. Write it to
+    // a temp .html file and load THAT instead (file:// has no size limit). The
+    // file is removed in `finally`.
+    const tmpFile = path.join(os.tmpdir(), `hermes-session-${crypto.randomUUID()}.html`)
+
     try {
-      await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html)))
+      await fs.promises.writeFile(tmpFile, String(html), 'utf8')
+      await win.loadFile(tmpFile)
 
       // Running header (centered <title> = "… - ProcEngAI") + footer (date & time
       // bottom-left, page/total bottom-right). The `.title`, `.pageNumber` and
@@ -44,6 +55,12 @@ function createSavePdf({ BrowserWindow, dialog, fs, getMainWindow }) {
       return { saved: true }
     } finally {
       win.destroy()
+      // Best-effort cleanup of the temp HTML; ignore if it never got written.
+      try {
+        await fs.promises.unlink(tmpFile)
+      } catch {
+        // ignore
+      }
     }
   }
 }
