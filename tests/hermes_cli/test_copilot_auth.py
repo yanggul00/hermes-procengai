@@ -87,6 +87,36 @@ class TestResolveToken:
         assert token == "gho_from_cli"
         assert source == "gh auth token"
 
+    def test_gh_cli_token_hides_console_window(self, monkeypatch):
+        """`gh auth token` must spawn with creationflags that hide the console.
+
+        The backend runs as console-less ``pythonw.exe``; without
+        CREATE_NO_WINDOW each ``gh auth token`` resolution pops a visible cmd
+        window on Windows (regression: fix/gh-console-flash). Assert the call
+        passes ``creationflags=windows_hide_flags()`` (a no-op 0 off Windows).
+        """
+        import hermes_cli.copilot_auth as ca
+        from hermes_cli._subprocess_compat import windows_hide_flags
+
+        captured = {}
+
+        class _Result:
+            returncode = 0
+            stdout = "gho_token_from_cli\n"
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured.update(kwargs)
+            return _Result()
+
+        monkeypatch.setattr(ca, "_gh_cli_candidates", lambda: ["/fake/gh"])
+        monkeypatch.setattr(ca.subprocess, "run", fake_run)
+
+        token = ca._try_gh_cli_token()
+        assert token == "gho_token_from_cli"
+        assert captured["cmd"] == ["/fake/gh", "auth", "token"]
+        assert captured.get("creationflags") == windows_hide_flags()
+
     def test_gh_cli_classic_pat_raises(self, monkeypatch):
         from hermes_cli.copilot_auth import resolve_copilot_token
         monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
