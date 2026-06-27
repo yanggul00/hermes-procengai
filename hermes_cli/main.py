@@ -12074,6 +12074,16 @@ def main():
     except Exception:
         pass
 
+    # On a console-less Windows backend (pythonw), default every subprocess to
+    # CREATE_NO_WINDOW so git/gh/cmd helpers spawned during normal operation
+    # never flash a console window.  No-op on non-Windows and in an interactive
+    # console (the CLI keeps visible windows for interactive children).
+    try:
+        from hermes_cli._subprocess_compat import install_console_hiding
+        install_console_hiding()
+    except Exception:
+        pass
+
     # Sweep stale ``hermes.exe.old.*`` quarantine files left by previous
     # ``hermes update`` runs on Windows. Silent no-op on non-Windows or when
     # there's nothing to clean. See ``_quarantine_running_hermes_exe``.
