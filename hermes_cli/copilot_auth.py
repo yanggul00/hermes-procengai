@@ -66,11 +66,15 @@ def validate_copilot_token(token: str) -> tuple[bool, str]:
     return True, "OK"
 
 
-def resolve_copilot_token() -> tuple[str, str]:
+def resolve_copilot_token(*, force_refresh: bool = False) -> tuple[str, str]:
     """Resolve a GitHub token suitable for Copilot API use.
 
     Returns (token, source) where source describes where the token came from.
     Raises ValueError if only a classic PAT is available.
+
+    ``force_refresh`` bypasses the ``gh auth token`` CLI cache — pass it on the
+    401 credential-refresh path that needs a genuinely fresh token. Routine
+    callers (credential-pool seeding) leave it False so they reuse the cache.
     """
     # 1. Check env vars in priority order
     for env_var in COPILOT_ENV_VARS:
@@ -85,7 +89,7 @@ def resolve_copilot_token() -> tuple[str, str]:
             return val, env_var
 
     # 2. Fall back to gh auth token
-    token = _try_gh_cli_token()
+    token = _try_gh_cli_token(force_refresh=force_refresh)
     if token:
         valid, msg = validate_copilot_token(token)
         if not valid:
@@ -118,8 +122,24 @@ def _gh_cli_candidates() -> list[str]:
     return candidates
 
 
-def _try_gh_cli_token() -> Optional[str]:
+# TTL cache for the `gh auth token` CLI resolution. The raw GitHub OAuth token
+# (gho_*) is long-lived and stable across calls, but resolve_copilot_token() is
+# hit constantly — the credential-pool seeder re-resolves the copilot provider
+# every couple of seconds regardless of the active provider — and each miss
+# spawns a `gh auth token` subprocess (1-3s, plus a console flash on Windows).
+# Cache the result so the subprocess runs at most once per TTL. Keyed on
+# COPILOT_GH_HOST, which selects which host's token gh returns. The exchanged
+# Copilot API token is cached separately (_jwt_cache), so this adds no staleness
+# there; the 401-refresh path passes force_refresh=True to bypass this cache.
+_GH_CLI_TOKEN_TTL = 300.0  # seconds
+_gh_cli_token_cache: dict[str, tuple[float, Optional[str]]] = {}
+
+
+def _try_gh_cli_token(*, force_refresh: bool = False) -> Optional[str]:
     """Return a token from ``gh auth token`` when the GitHub CLI is available.
+
+    Cached for ``_GH_CLI_TOKEN_TTL`` seconds to avoid re-spawning the CLI on
+    every call; ``force_refresh`` bypasses the cache and re-resolves.
 
     When COPILOT_GH_HOST is set, passes ``--hostname`` so gh returns the
     correct host's token.  Also strips GITHUB_TOKEN / GH_TOKEN from the
@@ -128,6 +148,18 @@ def _try_gh_cli_token() -> Optional[str]:
     """
     hostname = os.getenv("COPILOT_GH_HOST", "").strip()
 
+    if not force_refresh:
+        cached = _gh_cli_token_cache.get(hostname)
+        if cached is not None and (time.monotonic() - cached[0]) < _GH_CLI_TOKEN_TTL:
+            return cached[1]
+
+    token = _resolve_gh_cli_token_uncached(hostname)
+    _gh_cli_token_cache[hostname] = (time.monotonic(), token)
+    return token
+
+
+def _resolve_gh_cli_token_uncached(hostname: str) -> Optional[str]:
+    """Spawn ``gh auth token`` (per candidate path) and return the first token."""
     # Build a clean env so gh doesn't short-circuit on GITHUB_TOKEN / GH_TOKEN
     clean_env = {k: v for k, v in os.environ.items()
                  if k not in {"GITHUB_TOKEN", "GH_TOKEN"}}

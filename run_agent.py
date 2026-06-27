@@ -3918,7 +3918,9 @@ class AIAgent:
         try:
             from hermes_cli.copilot_auth import resolve_copilot_token
 
-            new_token, token_source = resolve_copilot_token()
+            # force_refresh: a 401 means the cached token may be stale, so
+            # bypass the gh-CLI token cache and re-resolve from scratch.
+            new_token, token_source = resolve_copilot_token(force_refresh=True)
         except Exception as exc:
             logger.debug("Copilot credential refresh failed: %s", exc)
             return False

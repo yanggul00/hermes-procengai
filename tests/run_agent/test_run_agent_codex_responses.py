@@ -1062,7 +1062,7 @@ def test_try_refresh_copilot_client_credentials_rebuilds_client(monkeypatch):
 
     monkeypatch.setattr(
         "hermes_cli.copilot_auth.resolve_copilot_token",
-        lambda: ("gho_new_token", "GH_TOKEN"),
+        lambda **_: ("gho_new_token", "GH_TOKEN"),
     )
     monkeypatch.setattr(run_agent, "OpenAI", _fake_openai)
 
@@ -1090,7 +1090,7 @@ def test_try_refresh_copilot_client_credentials_rebuilds_even_if_token_unchanged
 
     monkeypatch.setattr(
         "hermes_cli.copilot_auth.resolve_copilot_token",
-        lambda: ("gh-token", "gh auth token"),
+        lambda **_: ("gh-token", "gh auth token"),
     )
     monkeypatch.setattr(run_agent, "OpenAI", _fake_openai)
 
