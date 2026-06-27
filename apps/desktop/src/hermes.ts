@@ -490,7 +490,11 @@ export function getMemoryProviderOAuthStatus(provider: string): Promise<MemoryPr
 export function getSkills(): Promise<SkillInfo[]> {
   return window.hermesDesktop.api<SkillInfo[]>({
     ...profileScoped(),
-    path: '/api/skills'
+    path: '/api/skills',
+    // Loaded alongside getToolsets() in the Skills & Tools panel. The backend
+    // now offloads the slow toolset probes off the event loop, but keep a
+    // generous timeout here so a busy backend can't fail this sibling request.
+    timeoutMs: TOOLSETS_REQUEST_TIMEOUT_MS
   })
 }
 

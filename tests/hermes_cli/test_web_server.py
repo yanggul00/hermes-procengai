@@ -3637,6 +3637,32 @@ class TestNewEndpoints:
             },
         ]
 
+    def test_toolsets_list_offloads_blocking_probes_off_event_loop(self, monkeypatch):
+        """GET /api/tools/toolsets must run its slow availability probes in a
+        worker thread, not inline on the event loop.
+
+        Inline, the per-toolset probes (esp. the vision provider auto-detect,
+        20s+) froze the loop and starved the concurrent /api/skills request the
+        desktop panel fires alongside this one — that sibling then timed out and
+        the panel failed to load. Guard against regressing to inline work.
+        """
+        import hermes_cli.web_server as web_server
+
+        captured = {}
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            captured["thread_fn"] = fn
+            captured["thread_args"] = args
+            return fn(*args, **kwargs)
+
+        monkeypatch.setattr(web_server.asyncio, "to_thread", fake_to_thread)
+
+        resp = self.client.get("/api/tools/toolsets")
+
+        assert resp.status_code == 200
+        assert captured.get("thread_fn") is web_server._compute_toolsets_response
+        assert captured.get("thread_args") == (None,)
+
     def test_toggle_toolset_enable_disable(self):
         """PUT /api/tools/toolsets/{name} round-trips through config and the list view."""
         # Enable a toolset that is off-by-default so the state change is observable.

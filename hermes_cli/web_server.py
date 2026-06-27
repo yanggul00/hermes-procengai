@@ -10672,6 +10672,19 @@ async def update_skill_content(body: SkillContentUpdate):
 
 @app.get("/api/tools/toolsets")
 async def get_toolsets(profile: Optional[str] = None):
+    # The availability probes below are blocking and slow: _toolset_has_keys'
+    # vision branch builds provider clients (resolve_vision_provider_client) and
+    # can take 20s+, run once per configurable toolset. Done inline they froze
+    # the single event loop for the whole request, starving the concurrent
+    # /api/skills call the desktop Skills & Tools panel fires alongside this one
+    # — that sibling then hit its 15s timeout and the panel failed to load.
+    # Offload to a worker thread so the loop stays responsive (mirrors the
+    # /model provider-listing offload, #41289). _config_profile_scope is
+    # contextvar-only (no shared module-global lock), so it's safe off-loop.
+    return await asyncio.to_thread(_compute_toolsets_response, profile)
+
+
+def _compute_toolsets_response(profile: Optional[str]) -> list:
     from hermes_cli.tools_config import (
         _get_effective_configurable_toolsets,
         _get_platform_tools,
@@ -10680,7 +10693,7 @@ async def get_toolsets(profile: Optional[str] = None):
     )
     from toolsets import resolve_toolset
 
-    with _profile_scope(profile):
+    with _config_profile_scope(profile):
         config = load_config()
         enabled_toolsets = _get_platform_tools(
             config,

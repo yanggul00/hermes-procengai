@@ -1709,7 +1709,9 @@ def _save_platform_tools(config: dict, platform: str, enabled_toolset_keys: Set[
 # requests never share results. ``force_fresh`` bypasses the cache and
 # refreshes the stored value. This is a UI availability indicator only — real
 # vision tasks never read this cache.
-_TOOLSET_HAS_KEYS_TTL = 30.0  # seconds
+_TOOLSET_HAS_KEYS_TTL = 300.0  # seconds; the probe itself costs ~30-60s, and
+# "is this configured" only changes when the user edits keys/providers, so a
+# short TTL just forces a fresh slow probe on every revisit.
 _toolset_has_keys_cache: Dict[Tuple[str, str], Tuple[float, bool]] = {}
 
 
