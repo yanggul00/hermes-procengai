@@ -15,8 +15,9 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 
 from hermes_cli.config import (
@@ -1700,7 +1701,45 @@ def _save_platform_tools(config: dict, platform: str, enabled_toolset_keys: Set[
     save_config(config)
 
 
+# TTL cache for _toolset_has_keys. Its availability probes — most notably the
+# vision branch's resolve_vision_provider_client(), which builds provider
+# clients and can take 20s+ — are far too slow to repeat on every dashboard
+# load of /api/tools/toolsets (one probe per configurable toolset). Cache the
+# boolean result briefly, keyed on (ts_key, hermes_home) so profile-scoped
+# requests never share results. ``force_fresh`` bypasses the cache and
+# refreshes the stored value. This is a UI availability indicator only — real
+# vision tasks never read this cache.
+_TOOLSET_HAS_KEYS_TTL = 30.0  # seconds
+_toolset_has_keys_cache: Dict[Tuple[str, str], Tuple[float, bool]] = {}
+
+
+def _toolset_keys_cache_scope() -> str:
+    """Profile-identifying key so cached availability never crosses profiles."""
+    try:
+        from hermes_constants import get_hermes_home
+        return str(get_hermes_home())
+    except Exception:
+        return ""
+
+
 def _toolset_has_keys(
+    ts_key: str,
+    config: dict = None,
+    *,
+    force_fresh: bool = False,
+) -> bool:
+    """Check if a toolset's required API keys are configured (TTL-cached)."""
+    key = (ts_key, _toolset_keys_cache_scope())
+    if not force_fresh:
+        cached = _toolset_has_keys_cache.get(key)
+        if cached is not None and (time.monotonic() - cached[0]) < _TOOLSET_HAS_KEYS_TTL:
+            return cached[1]
+    result = _compute_toolset_has_keys(ts_key, config, force_fresh=force_fresh)
+    _toolset_has_keys_cache[key] = (time.monotonic(), result)
+    return result
+
+
+def _compute_toolset_has_keys(
     ts_key: str,
     config: dict = None,
     *,

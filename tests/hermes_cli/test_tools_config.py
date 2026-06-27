@@ -1021,6 +1021,39 @@ def test_toolset_has_keys_treats_no_key_providers_as_configured():
     assert _toolset_has_keys("computer_use", config) is True
 
 
+def test_toolset_has_keys_caches_expensive_probe():
+    """Repeated availability checks reuse a cached result; force_fresh bypasses it.
+
+    The vision probe (resolve_vision_provider_client) can take 20s+, and
+    /api/tools/toolsets runs one probe per toolset on every dashboard load.
+    The TTL cache must collapse repeated checks to a single computation so the
+    endpoint stops blowing the desktop fetch timeout.
+    """
+    import hermes_cli.tools_config as tc
+
+    tc._toolset_has_keys_cache.clear()
+    calls = {"n": 0}
+
+    def fake_compute(ts_key, config=None, *, force_fresh=False):
+        calls["n"] += 1
+        return True
+
+    with patch.object(tc, "_compute_toolset_has_keys", side_effect=fake_compute):
+        assert tc._toolset_has_keys("vision", {}) is True
+        assert tc._toolset_has_keys("vision", {}) is True
+        assert calls["n"] == 1  # second call served from cache
+
+        # force_fresh bypasses the cache and recomputes...
+        assert tc._toolset_has_keys("vision", {}, force_fresh=True) is True
+        assert calls["n"] == 2
+
+        # ...then repopulates it, so the next plain call is a cache hit again.
+        assert tc._toolset_has_keys("vision", {}) is True
+        assert calls["n"] == 2
+
+    tc._toolset_has_keys_cache.clear()
+
+
 def test_computer_use_needs_configuration_when_cua_driver_post_setup_pending():
     """No-key providers can still need setup when their post_setup is unsatisfied.
 

@@ -48,6 +48,11 @@ import type {
 
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = 30_000
 const SESSION_LIST_REQUEST_TIMEOUT_MS = 60_000
+// Toolset listing runs availability probes (e.g. vision provider auto-detect,
+// Nous subscription features) that can take far longer than the 15s default on
+// a cold backend. The backend caches results after the first call, so only the
+// first load is slow — give it room to complete instead of erroring.
+const TOOLSETS_REQUEST_TIMEOUT_MS = 60_000
 
 export type {
   ActionResponse,
@@ -501,7 +506,8 @@ export function toggleSkill(name: string, enabled: boolean): Promise<{ ok: boole
 export function getToolsets(): Promise<ToolsetInfo[]> {
   return window.hermesDesktop.api<ToolsetInfo[]>({
     ...profileScoped(),
-    path: '/api/tools/toolsets'
+    path: '/api/tools/toolsets',
+    timeoutMs: TOOLSETS_REQUEST_TIMEOUT_MS
   })
 }
 
