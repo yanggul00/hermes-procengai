@@ -154,6 +154,22 @@ def _warm_gateway_module() -> None:
         pass
 
 
+def _warm_toolset_cache() -> None:
+    """Pre-populate the toolset availability cache for the backend's profile.
+
+    GET /api/tools/toolsets runs slow per-toolset probes (the vision provider
+    auto-detect alone is 20-60s) on the first call. Running them once in a
+    background thread at startup — while the backend is still booting — means
+    the desktop Skills & Tools panel's first open hits a warm cache instead of
+    paying the cold probe. Best-effort: any failure just leaves the first real
+    request to warm the cache itself.
+    """
+    try:
+        _compute_toolsets_response(None)
+    except Exception:
+        pass
+
+
 def _resolve_restart_drain_timeout() -> float:
     try:
         from hermes_cli.gateway import _get_restart_drain_timeout
@@ -196,6 +212,12 @@ async def _lifespan(app: "FastAPI"):
             name="desktop-cron-ticker",
         )
         cron_thread.start()
+
+        # Warm the toolset availability cache in a worker thread so the Skills
+        # & Tools panel's first open is fast instead of paying the cold
+        # 20-60s vision/subscription probe. Desktop-only so it never fires in
+        # tests or headless dashboard/gateway runs. See _warm_toolset_cache.
+        asyncio.get_event_loop().run_in_executor(None, _warm_toolset_cache)
 
     try:
         yield
