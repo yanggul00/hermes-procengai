@@ -49,6 +49,12 @@ import type {
 
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = 30_000
 const SESSION_LIST_REQUEST_TIMEOUT_MS = 60_000
+// [procengai fork] The Skills & Tools panel loads /api/skills + /api/tools/toolsets
+// together. During a cold multi-profile backend boot the event loop stalls in
+// bursts (GIL pressure), and the 15s default can time out before it settles.
+// Give these two a longer budget so they ride out the stalls instead of erroring.
+// No effect on a healthy backend (responds in <1s); only matters when slow.
+const SKILLS_TOOLS_REQUEST_TIMEOUT_MS = 60_000
 // prompt.submit is effectively fire-and-forget: turn completion is signaled by
 // stream / message.complete events, NOT by the RPC return. A long turn (MoA
 // presets running references + aggregator in series, deep reasoning, large tool
@@ -496,7 +502,8 @@ export function getMemoryProviderOAuthStatus(provider: string): Promise<MemoryPr
 export function getSkills(): Promise<SkillInfo[]> {
   return window.hermesDesktop.api<SkillInfo[]>({
     ...profileScoped(),
-    path: '/api/skills'
+    path: '/api/skills',
+    timeoutMs: SKILLS_TOOLS_REQUEST_TIMEOUT_MS
   })
 }
 
@@ -553,7 +560,8 @@ export function toggleSkill(name: string, enabled: boolean): Promise<{ ok: boole
 export function getToolsets(): Promise<ToolsetInfo[]> {
   return window.hermesDesktop.api<ToolsetInfo[]>({
     ...profileScoped(),
-    path: '/api/tools/toolsets'
+    path: '/api/tools/toolsets',
+    timeoutMs: SKILLS_TOOLS_REQUEST_TIMEOUT_MS
   })
 }
 
