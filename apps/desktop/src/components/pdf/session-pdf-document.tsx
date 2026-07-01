@@ -2,7 +2,7 @@ import { type ComponentProps, createContext, useContext } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Streamdown } from 'streamdown'
 
-import { buildToolView, type ToolPart } from '@/components/assistant-ui/tool-fallback-model'
+import { buildToolView, type ToolPart } from '@/components/assistant-ui/tool/fallback-model'
 import type { ChatMessage, ChatMessagePart } from '@/lib/chat-messages'
 import { generatedImageFromResult } from '@/lib/generated-images'
 import { createMemoizedMathPlugin } from '@/lib/katex-memo'
