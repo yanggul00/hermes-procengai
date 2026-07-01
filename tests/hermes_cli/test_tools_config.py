@@ -1021,39 +1021,6 @@ def test_toolset_has_keys_treats_no_key_providers_as_configured():
     assert _toolset_has_keys("computer_use", config) is True
 
 
-def test_toolset_has_keys_caches_expensive_probe():
-    """Repeated availability checks reuse a cached result; force_fresh bypasses it.
-
-    The vision probe (resolve_vision_provider_client) can take 20s+, and
-    /api/tools/toolsets runs one probe per toolset on every dashboard load.
-    The TTL cache must collapse repeated checks to a single computation so the
-    endpoint stops blowing the desktop fetch timeout.
-    """
-    import hermes_cli.tools_config as tc
-
-    tc._toolset_has_keys_cache.clear()
-    calls = {"n": 0}
-
-    def fake_compute(ts_key, config=None, *, force_fresh=False):
-        calls["n"] += 1
-        return True
-
-    with patch.object(tc, "_compute_toolset_has_keys", side_effect=fake_compute):
-        assert tc._toolset_has_keys("vision", {}) is True
-        assert tc._toolset_has_keys("vision", {}) is True
-        assert calls["n"] == 1  # second call served from cache
-
-        # force_fresh bypasses the cache and recomputes...
-        assert tc._toolset_has_keys("vision", {}, force_fresh=True) is True
-        assert calls["n"] == 2
-
-        # ...then repopulates it, so the next plain call is a cache hit again.
-        assert tc._toolset_has_keys("vision", {}) is True
-        assert calls["n"] == 2
-
-    tc._toolset_has_keys_cache.clear()
-
-
 def test_computer_use_needs_configuration_when_cua_driver_post_setup_pending():
     """No-key providers can still need setup when their post_setup is unsatisfied.
 
@@ -1631,3 +1598,161 @@ def test_real_configurable_changes_still_reported_in_diff():
     assert ((new_enabled2 - current) & universe) == {"vision"}
 
 
+def test_vision_picker_writes_provider_and_model(tmp_path, monkeypatch):
+    """Picking a provider+model persists auxiliary.vision.{provider,model}.
+
+    Vision must not force OpenRouter — it offers the same any-provider surface
+    as ``hermes model`` and writes the selection to the auxiliary config keys
+    the resolver reads.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    import hermes_cli.tools_config as tc
+    from hermes_cli.config import load_config
+
+    fake_providers = [
+        {"slug": "anthropic", "name": "Anthropic", "total_models": 2,
+         "models": ["claude-sonnet-4.6", "claude-opus-4.6"]},
+        {"slug": "openai", "name": "OpenAI", "total_models": 1,
+         "models": ["gpt-5.4"]},
+    ]
+    # Top-level choice 1 (pick provider+model) → provider idx 0 (anthropic)
+    # → model idx 1 (claude-opus-4.6).
+    seq = iter([1, 0, 1])
+    with patch("hermes_cli.model_switch.list_authenticated_providers",
+               return_value=fake_providers), \
+         patch.object(tc, "_prompt_choice", side_effect=lambda *a, **k: next(seq)), \
+         patch.object(tc, "_toolset_has_keys", return_value=False):
+        tc._configure_vision_backend()
+
+    v = load_config().get("auxiliary", {}).get("vision", {})
+    assert v.get("provider") == "anthropic"
+    assert v.get("model") == "claude-opus-4.6"
+    # Provider selection must not leave a stale custom endpoint.
+    assert not v.get("base_url")
+
+
+def test_vision_picker_auto_clears_override(tmp_path, monkeypatch):
+    """Choosing Auto clears any pinned provider/model so resolution auto-detects."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    import hermes_cli.tools_config as tc
+    from hermes_cli.config import load_config, save_config
+
+    cfg = load_config()
+    cfg.setdefault("auxiliary", {})["vision"] = {
+        "provider": "openrouter", "model": "google/gemini-2.5-flash"}
+    save_config(cfg)
+
+    seq = iter([0])  # Auto
+    with patch.object(tc, "_prompt_choice", side_effect=lambda *a, **k: next(seq)), \
+         patch.object(tc, "_toolset_has_keys", return_value=False):
+        tc._configure_vision_backend()
+
+    v = load_config().get("auxiliary", {}).get("vision", {})
+    # Cleared back to the "auto" sentinel (DEFAULT_CONFIG default) — no pinned
+    # real provider/model survive.
+    assert v.get("provider") in (None, "", "auto")
+    assert not v.get("model")
+
+
+def test_vision_picker_custom_endpoint(tmp_path, monkeypatch):
+    """Custom endpoint writes base_url+model to config and the key to env."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    import hermes_cli.tools_config as tc
+    from hermes_cli.config import load_config
+
+    seq = iter([2])  # Custom OpenAI-compatible endpoint
+    prompts = iter(["https://my.endpoint/v1", "sk-secret", "my-vision-model"])
+    with patch.object(tc, "_prompt_choice", side_effect=lambda *a, **k: next(seq)), \
+         patch.object(tc, "_prompt", side_effect=lambda *a, **k: next(prompts)), \
+         patch.object(tc, "save_env_value") as save_env, \
+         patch.object(tc, "_toolset_has_keys", return_value=False):
+        tc._configure_vision_backend()
+
+    v = load_config().get("auxiliary", {}).get("vision", {})
+    assert v.get("base_url") == "https://my.endpoint/v1"
+    assert v.get("model") == "my-vision-model"
+    # provider pinned to "custom" so the resolver routes through base_url.
+    assert v.get("provider") == "custom"
+    save_env.assert_called_once_with("OPENAI_API_KEY", "sk-secret")
+
+
+def test_save_platform_tools_clears_newly_enabled_from_disabled_toolsets():
+    """Enabling a toolset via the picker must remove it from
+    agent.disabled_toolsets, or _get_platform_tools() permanently masks it
+    back to OFF on the next read no matter what platform_toolsets says.
+
+    Blank Slate installs pre-populate disabled_toolsets with ~27 toolsets,
+    making the desktop Toolsets UI's enable toggle effectively a no-op for
+    any of them (issue #49995).
+    """
+    config = {
+        "platform_toolsets": {"cli": ["file", "terminal"]},
+        "agent": {"disabled_toolsets": ["todo", "memory", "browser"]},
+    }
+
+    with patch("hermes_cli.tools_config.save_config"):
+        _save_platform_tools(config, "cli", {"file", "terminal", "todo"})
+
+    # The toolset the user just enabled is cleared from the block-list...
+    assert "todo" not in config["agent"]["disabled_toolsets"]
+    # ...but toolsets the user did NOT touch stay disabled (no over-reach).
+    assert "memory" in config["agent"]["disabled_toolsets"]
+    assert "browser" in config["agent"]["disabled_toolsets"]
+    assert "todo" in config["platform_toolsets"]["cli"]
+
+
+def test_save_platform_tools_resolves_to_enabled_after_disabled_toolsets_reconcile():
+    """End-to-end: after _save_platform_tools() reconciles disabled_toolsets,
+    _get_platform_tools() must actually resolve the toolset as enabled --
+    this is the exact symptom from issue #49995 (toggle saves but the UI/agent
+    still reads it as OFF after reopen).
+    """
+    config = {
+        "platform_toolsets": {"cli": ["file", "terminal"]},
+        "agent": {"disabled_toolsets": ["todo", "memory"]},
+    }
+
+    # Before: todo is masked off despite not being in platform_toolsets yet.
+    assert "todo" not in _get_platform_tools(config, "cli")
+
+    with patch("hermes_cli.tools_config.save_config"):
+        _save_platform_tools(config, "cli", {"file", "terminal", "todo"})
+
+    # After: todo must resolve as enabled, and untouched 'memory' must
+    # remain masked off.
+    resolved = _get_platform_tools(config, "cli")
+    assert "todo" in resolved
+    assert "memory" not in resolved
+
+
+def test_save_platform_tools_no_disabled_toolsets_is_noop():
+    """When agent.disabled_toolsets is absent or empty, the reconcile step
+    must be a complete no-op (no KeyError, no spurious 'agent' key creation).
+    """
+    config = {"platform_toolsets": {"cli": ["file", "terminal"]}}
+
+    with patch("hermes_cli.tools_config.save_config"):
+        _save_platform_tools(config, "cli", {"file", "terminal", "todo"})
+
+    assert "todo" in config["platform_toolsets"]["cli"]
+    # No 'agent' key should be fabricated when none existed.
+    assert "agent" not in config
+
+
+def test_save_platform_tools_disabling_a_toolset_does_not_touch_disabled_toolsets():
+    """Turning a toolset OFF (not present in enabled_toolset_keys) must not
+    remove anything from agent.disabled_toolsets -- only toolsets the user
+    just explicitly enabled are reconciled.
+    """
+    config = {
+        "platform_toolsets": {"cli": ["file", "terminal", "todo"]},
+        "agent": {"disabled_toolsets": ["memory"]},
+    }
+
+    with patch("hermes_cli.tools_config.save_config"):
+        # User unchecks 'todo' -- it's no longer in enabled_toolset_keys.
+        _save_platform_tools(config, "cli", {"file", "terminal"})
+
+    assert "todo" not in config["platform_toolsets"]["cli"]
+    # disabled_toolsets is untouched by a disable action.
+    assert config["agent"]["disabled_toolsets"] == ["memory"]

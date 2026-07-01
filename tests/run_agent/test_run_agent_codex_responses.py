@@ -268,6 +268,38 @@ def test_copilot_acp_stays_on_chat_completions_for_gpt_5_models(monkeypatch):
     assert agent.api_mode == "chat_completions"
 
 
+def test_custom_provider_gpt5_stays_on_chat_completions(monkeypatch):
+    _patch_agent_bootstrap(monkeypatch)
+    agent = run_agent.AIAgent(
+        model="gpt-5.4",
+        base_url="https://relay.example.com/v1",
+        provider="custom",
+        api_key="relay-token",
+        quiet_mode=True,
+        max_iterations=1,
+        skip_context_files=True,
+        skip_memory=True,
+    )
+    assert agent.provider == "custom"
+    assert agent.api_mode == "chat_completions"
+
+
+def test_custom_provider_direct_openai_url_still_uses_responses(monkeypatch):
+    _patch_agent_bootstrap(monkeypatch)
+    agent = run_agent.AIAgent(
+        model="gpt-5.4",
+        base_url="https://api.openai.com/v1",
+        provider="custom",
+        api_key="openai-token",
+        quiet_mode=True,
+        max_iterations=1,
+        skip_context_files=True,
+        skip_memory=True,
+    )
+    assert agent.provider == "custom"
+    assert agent.api_mode == "codex_responses"
+
+
 def test_copilot_gpt_5_mini_stays_on_chat_completions(monkeypatch):
     _patch_agent_bootstrap(monkeypatch)
     agent = run_agent.AIAgent(
@@ -1062,7 +1094,7 @@ def test_try_refresh_copilot_client_credentials_rebuilds_client(monkeypatch):
 
     monkeypatch.setattr(
         "hermes_cli.copilot_auth.resolve_copilot_token",
-        lambda **_: ("gho_new_token", "GH_TOKEN"),
+        lambda: ("gho_new_token", "GH_TOKEN"),
     )
     monkeypatch.setattr(run_agent, "OpenAI", _fake_openai)
 
@@ -1090,7 +1122,7 @@ def test_try_refresh_copilot_client_credentials_rebuilds_even_if_token_unchanged
 
     monkeypatch.setattr(
         "hermes_cli.copilot_auth.resolve_copilot_token",
-        lambda **_: ("gh-token", "gh auth token"),
+        lambda: ("gh-token", "gh auth token"),
     )
     monkeypatch.setattr(run_agent, "OpenAI", _fake_openai)
 

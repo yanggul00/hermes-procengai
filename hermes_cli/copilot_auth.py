@@ -27,12 +27,18 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from hermes_cli._subprocess_compat import windows_hide_flags
+from hermes_cli._subprocess_compat import IS_WINDOWS, windows_hide_flags
 
 logger = logging.getLogger(__name__)
 
-# OAuth device code flow constants (same client ID as opencode/Copilot CLI)
-COPILOT_OAUTH_CLIENT_ID = "Ov23li8tweQw6odWQebz"
+# OAuth device code flow constants — VS Code's GitHub App client ID.
+# The previous opencode OAuth App ID (Ov23li8tweQw6odWQebz) produces gho_*
+# tokens that cannot be exchanged for Copilot API JWTs (404 on
+# /copilot_internal/v2/token). VS Code's App ID produces ghu_* tokens
+# that support exchange, which is required to access internal-only models
+# (e.g. claude-opus-4.6-1m) and enterprise endpoints.
+# Tested on Individual and Enterprise accounts.
+COPILOT_OAUTH_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 # Token type prefixes
 _CLASSIC_PAT_PREFIX = "ghp_"
 _SUPPORTED_PREFIXES = ("gho_", "github_pat_", "ghu_")
@@ -66,15 +72,11 @@ def validate_copilot_token(token: str) -> tuple[bool, str]:
     return True, "OK"
 
 
-def resolve_copilot_token(*, force_refresh: bool = False) -> tuple[str, str]:
+def resolve_copilot_token() -> tuple[str, str]:
     """Resolve a GitHub token suitable for Copilot API use.
 
     Returns (token, source) where source describes where the token came from.
     Raises ValueError if only a classic PAT is available.
-
-    ``force_refresh`` bypasses the ``gh auth token`` CLI cache — pass it on the
-    401 credential-refresh path that needs a genuinely fresh token. Routine
-    callers (credential-pool seeding) leave it False so they reuse the cache.
     """
     # 1. Check env vars in priority order
     for env_var in COPILOT_ENV_VARS:
@@ -89,7 +91,7 @@ def resolve_copilot_token(*, force_refresh: bool = False) -> tuple[str, str]:
             return val, env_var
 
     # 2. Fall back to gh auth token
-    token = _try_gh_cli_token(force_refresh=force_refresh)
+    token = _try_gh_cli_token()
     if token:
         valid, msg = validate_copilot_token(token)
         if not valid:
@@ -122,24 +124,8 @@ def _gh_cli_candidates() -> list[str]:
     return candidates
 
 
-# TTL cache for the `gh auth token` CLI resolution. The raw GitHub OAuth token
-# (gho_*) is long-lived and stable across calls, but resolve_copilot_token() is
-# hit constantly — the credential-pool seeder re-resolves the copilot provider
-# every couple of seconds regardless of the active provider — and each miss
-# spawns a `gh auth token` subprocess (1-3s, plus a console flash on Windows).
-# Cache the result so the subprocess runs at most once per TTL. Keyed on
-# COPILOT_GH_HOST, which selects which host's token gh returns. The exchanged
-# Copilot API token is cached separately (_jwt_cache), so this adds no staleness
-# there; the 401-refresh path passes force_refresh=True to bypass this cache.
-_GH_CLI_TOKEN_TTL = 300.0  # seconds
-_gh_cli_token_cache: dict[str, tuple[float, Optional[str]]] = {}
-
-
-def _try_gh_cli_token(*, force_refresh: bool = False) -> Optional[str]:
+def _try_gh_cli_token() -> Optional[str]:
     """Return a token from ``gh auth token`` when the GitHub CLI is available.
-
-    Cached for ``_GH_CLI_TOKEN_TTL`` seconds to avoid re-spawning the CLI on
-    every call; ``force_refresh`` bypasses the cache and re-resolves.
 
     When COPILOT_GH_HOST is set, passes ``--hostname`` so gh returns the
     correct host's token.  Also strips GITHUB_TOKEN / GH_TOKEN from the
@@ -148,22 +134,11 @@ def _try_gh_cli_token(*, force_refresh: bool = False) -> Optional[str]:
     """
     hostname = os.getenv("COPILOT_GH_HOST", "").strip()
 
-    if not force_refresh:
-        cached = _gh_cli_token_cache.get(hostname)
-        if cached is not None and (time.monotonic() - cached[0]) < _GH_CLI_TOKEN_TTL:
-            return cached[1]
-
-    token = _resolve_gh_cli_token_uncached(hostname)
-    _gh_cli_token_cache[hostname] = (time.monotonic(), token)
-    return token
-
-
-def _resolve_gh_cli_token_uncached(hostname: str) -> Optional[str]:
-    """Spawn ``gh auth token`` (per candidate path) and return the first token."""
     # Build a clean env so gh doesn't short-circuit on GITHUB_TOKEN / GH_TOKEN
     clean_env = {k: v for k, v in os.environ.items()
                  if k not in {"GITHUB_TOKEN", "GH_TOKEN"}}
 
+    _popen_kwargs = {"creationflags": windows_hide_flags()} if IS_WINDOWS else {}
     for gh_path in _gh_cli_candidates():
         cmd = [gh_path, "auth", "token"]
         if hostname:
@@ -175,9 +150,7 @@ def _resolve_gh_cli_token_uncached(hostname: str) -> Optional[str]:
                 text=True,
                 timeout=5,
                 env=clean_env,
-                # Backend runs as console-less pythonw; without this each
-                # `gh auth token` pops a visible cmd window on Windows.
-                creationflags=windows_hide_flags(),
+                **_popen_kwargs,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
             logger.debug("gh CLI token lookup failed (%s): %s", gh_path, exc)
@@ -315,8 +288,8 @@ def copilot_device_code_login(
 # ─── Copilot Token Exchange ────────────────────────────────────────────────
 
 # Module-level cache for exchanged Copilot API tokens.
-# Maps raw_token_fingerprint -> (api_token, expires_at_epoch).
-_jwt_cache: dict[str, tuple[str, float]] = {}
+# Maps raw_token_fingerprint -> (api_token, expires_at_epoch, base_url).
+_jwt_cache: dict[str, tuple[str, float, Optional[str]]] = {}
 _JWT_REFRESH_MARGIN_SECONDS = 120  # refresh 2 min before expiry
 
 # Token exchange endpoint and headers (matching VS Code / Copilot CLI)
@@ -331,14 +304,18 @@ def _token_fingerprint(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode()).hexdigest()[:16]
 
 
-def exchange_copilot_token(raw_token: str, *, timeout: float = 10.0) -> tuple[str, float]:
+def exchange_copilot_token(raw_token: str, *, timeout: float = 10.0) -> tuple[str, float, Optional[str]]:
     """Exchange a raw GitHub token for a short-lived Copilot API token.
 
     Calls ``GET https://api.github.com/copilot_internal/v2/token`` with
-    the raw GitHub token and returns ``(api_token, expires_at)``.
+    the raw GitHub token and returns ``(api_token, expires_at, base_url)``.
 
     The returned token is a semicolon-separated string (not a standard JWT)
     used as ``Authorization: Bearer <token>`` for Copilot API requests.
+    ``base_url`` is the account-specific API host: the authoritative
+    ``endpoints.api`` advertised by the exchange (enterprise/proxied
+    accounts), falling back to a host derived from the token's ``proxy-ep``
+    field. Individual accounts have neither, so ``base_url`` is None.
 
     Results are cached in-process and reused until close to expiry.
     Raises ``ValueError`` on failure.
@@ -350,9 +327,9 @@ def exchange_copilot_token(raw_token: str, *, timeout: float = 10.0) -> tuple[st
     # Check cache first
     cached = _jwt_cache.get(fp)
     if cached:
-        api_token, expires_at = cached
+        api_token, expires_at, base_url = cached
         if time.time() < expires_at - _JWT_REFRESH_MARGIN_SECONDS:
-            return api_token, expires_at
+            return api_token, expires_at, base_url
 
     req = urllib.request.Request(
         _TOKEN_EXCHANGE_URL,
@@ -379,30 +356,82 @@ def exchange_copilot_token(raw_token: str, *, timeout: float = 10.0) -> tuple[st
     # Convert expires_at to float if needed
     expires_at = float(expires_at) if expires_at else time.time() + 1800
 
-    _jwt_cache[fp] = (api_token, expires_at)
+    # Resolve the account-specific API base URL. GitHub advertises the
+    # authoritative endpoint under ``endpoints.api`` in the exchange response
+    # (it differs for Copilot Enterprise / proxied accounts). When the
+    # response omits it, fall back to deriving the host from the ``proxy-ep``
+    # field embedded in the exchanged token. Individual accounts have neither,
+    # so ``base_url`` stays None and callers use the registry default.
+    base_url: Optional[str] = None
+    endpoints = data.get("endpoints")
+    if isinstance(endpoints, dict):
+        api_endpoint = str(endpoints.get("api") or "").strip().rstrip("/")
+        if api_endpoint:
+            base_url = api_endpoint
+    if not base_url:
+        base_url = _derive_base_url_from_proxy_ep(api_token)
+
+    _jwt_cache[fp] = (api_token, expires_at, base_url)
     logger.debug(
-        "Copilot token exchanged, expires_at=%s",
+        "Copilot token exchanged, expires_at=%s, base_url=%s",
         expires_at,
+        base_url,
     )
-    return api_token, expires_at
+    return api_token, expires_at, base_url
 
 
-def get_copilot_api_token(raw_token: str) -> str:
+def _derive_base_url_from_proxy_ep(token: str) -> Optional[str]:
+    """Derive the Copilot API base URL from a proxy-ep field in the token.
+
+    The exchanged Copilot token is a semicolon-separated string like
+    ``tid=xxx;exp=xxx;proxy-ep=proxy.enterprise.githubcopilot.com;...``.
+    This extracts ``proxy-ep`` and converts it to an API base URL by
+    replacing the leading ``proxy.`` with ``api.``.
+
+    Returns ``https://{api_hostname}`` or None if proxy-ep is absent.
+    """
+    import re
+    m = re.search(r'(?:^|;)\s*proxy-ep=([^;\s]+)', token)
+    if not m:
+        return None
+
+    proxy_ep = m.group(1)
+    # Strip scheme if present
+    for prefix in ("https://", "http://"):
+        if proxy_ep.startswith(prefix):
+            proxy_ep = proxy_ep[len(prefix):]
+            break
+    proxy_ep = proxy_ep.rstrip("/")
+
+    # Replace leading "proxy." with "api."
+    if proxy_ep.startswith("proxy."):
+        api_host = "api." + proxy_ep[len("proxy."):]
+    else:
+        api_host = proxy_ep
+
+    return f"https://{api_host}"
+
+
+def get_copilot_api_token(raw_token: str) -> tuple[str, Optional[str]]:
     """Exchange a raw GitHub token for a Copilot API token, with fallback.
 
-    Convenience wrapper: returns the exchanged token on success, or the
-    raw token unchanged if the exchange fails (e.g. network error, unsupported
+    Convenience wrapper: returns ``(api_token, base_url)`` on success, or
+    ``(raw_token, None)`` if the exchange fails (e.g. network error, unsupported
     account type). This preserves existing behaviour for accounts that don't
     need exchange while enabling access to internal-only models for those that do.
+
+    ``base_url`` is the account-specific API endpoint advertised by the
+    exchange (``endpoints.api``, with a ``proxy-ep`` fallback), or None for
+    individual accounts.
     """
     if not raw_token:
-        return raw_token
+        return raw_token, None
     try:
-        api_token, _ = exchange_copilot_token(raw_token)
-        return api_token
+        api_token, _, base_url = exchange_copilot_token(raw_token)
+        return api_token, base_url
     except Exception as exc:
         logger.debug("Copilot token exchange failed, using raw token: %s", exc)
-        return raw_token
+        return raw_token, None
 
 
 # ─── Copilot API Headers ───────────────────────────────────────────────────

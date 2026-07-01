@@ -41,6 +41,7 @@ import type {
   SessionMessagesResponse,
   SessionSearchResponse,
   SkillInfo,
+  StarmapGraph,
   StatusResponse,
   ToolsetConfig,
   ToolsetInfo
@@ -48,11 +49,15 @@ import type {
 
 const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = 30_000
 const SESSION_LIST_REQUEST_TIMEOUT_MS = 60_000
-// Toolset listing runs availability probes (e.g. vision provider auto-detect,
-// Nous subscription features) that can take far longer than the 15s default on
-// a cold backend. The backend caches results after the first call, so only the
-// first load is slow — give it room to complete instead of erroring.
-const TOOLSETS_REQUEST_TIMEOUT_MS = 60_000
+// prompt.submit is effectively fire-and-forget: turn completion is signaled by
+// stream / message.complete events, NOT by the RPC return. A long turn (MoA
+// presets running references + aggregator in series, deep reasoning, large tool
+// chains) can legitimately take minutes to ACK, so bounding the ack by the
+// generic 30s default surfaces a false "request timed out" toast while the turn
+// is still running and will succeed (issue #55024). Match the backend's
+// agent-turn ceiling (agent.gateway_timeout = 1800s) so the ack timeout only
+// ever fires when the turn itself would have been abandoned server-side.
+export const PROMPT_SUBMIT_REQUEST_TIMEOUT_MS = 1_800_000
 
 export type {
   ActionResponse,
@@ -118,6 +123,7 @@ export type {
   SessionSearchResult,
   SkillInfo,
   StaleAuxAssignment,
+  StarmapGraph,
   StatusResponse,
   ToolsetConfig,
   ToolsetInfo
@@ -490,11 +496,48 @@ export function getMemoryProviderOAuthStatus(provider: string): Promise<MemoryPr
 export function getSkills(): Promise<SkillInfo[]> {
   return window.hermesDesktop.api<SkillInfo[]>({
     ...profileScoped(),
-    path: '/api/skills',
-    // Loaded alongside getToolsets() in the Skills & Tools panel. The backend
-    // now offloads the slow toolset probes off the event loop, but keep a
-    // generous timeout here so a busy backend can't fail this sibling request.
-    timeoutMs: TOOLSETS_REQUEST_TIMEOUT_MS
+    path: '/api/skills'
+  })
+}
+
+export function getStarmapGraph(): Promise<StarmapGraph> {
+  return window.hermesDesktop.api<StarmapGraph>({
+    ...profileScoped(),
+    // Backend REST contract — stays /api/learning even though the UI feature is
+    // now "star map". Renaming this would break against an un-upgraded backend.
+    path: '/api/learning/graph'
+  })
+}
+
+export interface LearningNodeDetail {
+  content: string
+  kind: 'memory' | 'skill'
+  label: string
+  ok: boolean
+}
+
+export function getLearningNode(id: string): Promise<LearningNodeDetail> {
+  return window.hermesDesktop.api<LearningNodeDetail>({
+    ...profileScoped(),
+    path: `/api/learning/node?id=${encodeURIComponent(id)}`
+  })
+}
+
+export function deleteLearningNode(id: string): Promise<{ message: string; ok: boolean }> {
+  return window.hermesDesktop.api<{ message: string; ok: boolean }>({
+    ...profileScoped(),
+    path: '/api/learning/node',
+    method: 'DELETE',
+    body: { id }
+  })
+}
+
+export function editLearningNode(id: string, content: string): Promise<{ message: string; ok: boolean }> {
+  return window.hermesDesktop.api<{ message: string; ok: boolean }>({
+    ...profileScoped(),
+    path: '/api/learning/node',
+    method: 'PUT',
+    body: { content, id }
   })
 }
 
@@ -510,8 +553,7 @@ export function toggleSkill(name: string, enabled: boolean): Promise<{ ok: boole
 export function getToolsets(): Promise<ToolsetInfo[]> {
   return window.hermesDesktop.api<ToolsetInfo[]>({
     ...profileScoped(),
-    path: '/api/tools/toolsets',
-    timeoutMs: TOOLSETS_REQUEST_TIMEOUT_MS
+    path: '/api/tools/toolsets'
   })
 }
 

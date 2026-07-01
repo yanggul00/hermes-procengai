@@ -347,7 +347,7 @@ class TestApiKeyProviderStatus:
         assert status["base_url"] == STEPFUN_STEP_PLAN_CN_BASE_URL
 
     def test_copilot_status_uses_gh_cli_token(self, monkeypatch):
-        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda **_: "gho_gh_cli_token")
+        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda: "gho_gh_cli_token")
         status = get_api_key_provider_status("copilot")
         assert status["configured"] is True
         assert status["logged_in"] is True
@@ -410,7 +410,7 @@ class TestResolveApiKeyProviderCredentials:
         assert creds["source"] == "GITHUB_TOKEN"
 
     def test_resolve_copilot_with_gh_cli_fallback(self, monkeypatch):
-        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda **_: "gho_cli_secret")
+        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda: "gho_cli_secret")
         creds = resolve_api_key_provider_credentials("copilot")
         assert creds["provider"] == "copilot"
         assert creds["api_key"] == "gho_cli_secret"
@@ -425,6 +425,15 @@ class TestResolveApiKeyProviderCredentials:
 
         assert creds["provider"] == "lmstudio"
         assert creds["api_key"] == "lm-token"
+        assert creds["base_url"] == "http://lmstudio.remote:4321/v1"
+
+    def test_resolve_lmstudio_normalizes_native_api_base_url_from_env(self, monkeypatch):
+        monkeypatch.setenv("LM_API_KEY", "lm-token")
+        monkeypatch.setenv("LM_BASE_URL", "http://lmstudio.remote:4321/api/v1")
+
+        creds = resolve_api_key_provider_credentials("lmstudio")
+
+        assert creds["provider"] == "lmstudio"
         assert creds["base_url"] == "http://lmstudio.remote:4321/v1"
 
     def test_resolve_lmstudio_no_api_key_substitutes_placeholder(self, monkeypatch):
@@ -638,7 +647,7 @@ class TestRuntimeProviderResolution:
         assert result["api_key"] == "auto-kimi-key"
 
     def test_runtime_copilot_uses_gh_cli_token(self, monkeypatch):
-        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda **_: "gho_cli_secret")
+        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda: "gho_cli_secret")
         from hermes_cli.runtime_provider import resolve_runtime_provider
         result = resolve_runtime_provider(requested="copilot")
         assert result["provider"] == "copilot"
@@ -647,7 +656,7 @@ class TestRuntimeProviderResolution:
         assert result["base_url"] == "https://api.githubcopilot.com"
 
     def test_runtime_copilot_uses_responses_for_gpt_5_4(self, monkeypatch):
-        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda **_: "gho_cli_secret")
+        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda: "gho_cli_secret")
         monkeypatch.setattr(
             "hermes_cli.runtime_provider._get_model_config",
             lambda: {"provider": "copilot", "default": "gpt-5.4"},
@@ -713,7 +722,7 @@ class TestHasAnyProviderConfigured:
 
     def test_gh_cli_token_counts(self, monkeypatch, tmp_path):
         from hermes_cli import config as config_module
-        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda **_: "gho_cli_secret")
+        monkeypatch.setattr("hermes_cli.copilot_auth._try_gh_cli_token", lambda: "gho_cli_secret")
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()
         monkeypatch.setattr(config_module, "get_env_path", lambda: hermes_home / ".env")

@@ -87,37 +87,6 @@ class TestResolveToken:
         assert token == "gho_from_cli"
         assert source == "gh auth token"
 
-    def test_gh_cli_token_hides_console_window(self, monkeypatch):
-        """`gh auth token` must spawn with creationflags that hide the console.
-
-        The backend runs as console-less ``pythonw.exe``; without
-        CREATE_NO_WINDOW each ``gh auth token`` resolution pops a visible cmd
-        window on Windows (regression: fix/gh-console-flash). Assert the call
-        passes ``creationflags=windows_hide_flags()`` (a no-op 0 off Windows).
-        """
-        import hermes_cli.copilot_auth as ca
-        from hermes_cli._subprocess_compat import windows_hide_flags
-
-        captured = {}
-
-        class _Result:
-            returncode = 0
-            stdout = "gho_token_from_cli\n"
-
-        def fake_run(cmd, **kwargs):
-            captured["cmd"] = cmd
-            captured.update(kwargs)
-            return _Result()
-
-        monkeypatch.setattr(ca, "_gh_cli_candidates", lambda: ["/fake/gh"])
-        monkeypatch.setattr(ca.subprocess, "run", fake_run)
-        ca._gh_cli_token_cache.clear()  # ensure a real resolution, not a cache hit
-
-        token = ca._try_gh_cli_token()
-        assert token == "gho_token_from_cli"
-        assert captured["cmd"] == ["/fake/gh", "auth", "token"]
-        assert captured.get("creationflags") == windows_hide_flags()
-
     def test_gh_cli_classic_pat_raises(self, monkeypatch):
         from hermes_cli.copilot_auth import resolve_copilot_token
         monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
@@ -136,67 +105,6 @@ class TestResolveToken:
             token, source = resolve_copilot_token()
         assert token == ""
         assert source == ""
-
-
-class TestGhCliTokenCache:
-    """`gh auth token` resolution is cached so it isn't re-spawned on every
-    credential-pool seed (which re-resolves copilot ~every couple of seconds)."""
-
-    @pytest.fixture(autouse=True)
-    def _clear_cache(self, monkeypatch):
-        import hermes_cli.copilot_auth as ca
-        # No COPILOT_GH_HOST → cache key is the empty hostname.
-        monkeypatch.delenv("COPILOT_GH_HOST", raising=False)
-        ca._gh_cli_token_cache.clear()
-        yield
-        ca._gh_cli_token_cache.clear()
-
-    @staticmethod
-    def _patch_run(monkeypatch, calls):
-        import hermes_cli.copilot_auth as ca
-
-        class _Result:
-            returncode = 0
-            stdout = "gho_cached_token\n"
-
-        def fake_run(cmd, **kwargs):
-            calls.append(cmd)
-            return _Result()
-
-        monkeypatch.setattr(ca, "_gh_cli_candidates", lambda: ["/fake/gh"])
-        monkeypatch.setattr(ca.subprocess, "run", fake_run)
-
-    def test_second_call_uses_cache(self, monkeypatch):
-        import hermes_cli.copilot_auth as ca
-        calls = []
-        self._patch_run(monkeypatch, calls)
-
-        assert ca._try_gh_cli_token() == "gho_cached_token"
-        assert ca._try_gh_cli_token() == "gho_cached_token"
-        assert len(calls) == 1  # subprocess spawned once, second call cached
-
-    def test_force_refresh_bypasses_cache(self, monkeypatch):
-        import hermes_cli.copilot_auth as ca
-        calls = []
-        self._patch_run(monkeypatch, calls)
-
-        assert ca._try_gh_cli_token() == "gho_cached_token"
-        assert ca._try_gh_cli_token(force_refresh=True) == "gho_cached_token"
-        assert len(calls) == 2  # force_refresh re-spawned the subprocess
-
-    def test_resolve_copilot_token_threads_force_refresh(self, monkeypatch):
-        import hermes_cli.copilot_auth as ca
-        for var in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"):
-            monkeypatch.delenv(var, raising=False)
-        captured = {}
-
-        def fake_try(*, force_refresh=False):
-            captured["force_refresh"] = force_refresh
-            return "gho_x"
-
-        monkeypatch.setattr(ca, "_try_gh_cli_token", fake_try)
-        ca.resolve_copilot_token(force_refresh=True)
-        assert captured["force_refresh"] is True
 
 
 class TestRequestHeaders:

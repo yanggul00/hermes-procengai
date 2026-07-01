@@ -38,7 +38,6 @@ __all__ = [
     "windows_detach_flags_without_breakaway",
     "windows_hide_flags",
     "windows_detach_popen_kwargs",
-    "install_console_hiding",
 ]
 
 
@@ -233,70 +232,3 @@ def windows_detach_popen_kwargs() -> dict:
     if IS_WINDOWS:
         return {"creationflags": windows_detach_flags()}
     return {"start_new_session": True}
-
-
-# Tracks whether the global subprocess console-hiding patch is installed, so
-# install_console_hiding() is idempotent.
-_console_hiding_installed = False
-
-
-def _windows_has_console() -> bool:
-    """True if this process owns a console window.
-
-    A console-less backend (``pythonw``, GUI-spawned) returns False; an
-    interactive terminal (the ``hermes`` CLI) returns True. Used to decide
-    whether hiding subprocess consoles is safe — we only hide for the
-    console-less backend, never for the interactive CLI.
-    """
-    try:
-        import ctypes
-
-        return bool(ctypes.windll.kernel32.GetConsoleWindow())  # type: ignore[attr-defined]
-    except Exception:
-        return False
-
-
-def install_console_hiding(*, force: bool = False) -> bool:
-    """Default ``subprocess.Popen`` children to ``CREATE_NO_WINDOW`` so a
-    console-less Windows backend never flashes a console window.
-
-    The whole agent backend runs as console-less ``pythonw``. On Windows, any
-    subprocess that launches a console app (``git``, ``gh``, ``cmd`` via
-    ``shell=True``) pops a fresh console window because the parent has no
-    console to inherit. There are hundreds of such call sites; rather than
-    annotate each one, patch ``Popen`` once at startup to hide them by default.
-
-    The flag is added ONLY when the caller passed no ``creationflags``, so
-    explicit detached/hidden spawns (``windows_detach_flags`` et al.) keep their
-    own flags. No-op when:
-
-    - not on Windows (``CREATE_NO_WINDOW`` is meaningless elsewhere),
-    - a console is attached — the interactive ``hermes`` CLI keeps visible
-      windows for interactive children (editors, ``gh auth login``),
-    - already installed.
-
-    Call once at backend startup. ``force=True`` bypasses the console check
-    (tests only). Returns True iff the patch was installed.
-    """
-    global _console_hiding_installed
-
-    if _console_hiding_installed:
-        return False
-    if not IS_WINDOWS:
-        return False
-    if not force and _windows_has_console():
-        return False
-
-    import subprocess
-
-    _orig_init = subprocess.Popen.__init__
-
-    def _init_no_window(self, *args, **kwargs):
-        if not kwargs.get("creationflags"):
-            kwargs["creationflags"] = _CREATE_NO_WINDOW
-        return _orig_init(self, *args, **kwargs)
-
-    _init_no_window._hermes_console_hiding = True  # type: ignore[attr-defined]
-    subprocess.Popen.__init__ = _init_no_window  # type: ignore[method-assign]
-    _console_hiding_installed = True
-    return True
